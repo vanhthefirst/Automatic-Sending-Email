@@ -1,4 +1,8 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Coming up with the idea of an automatic tracking system of training progress, this project was built to send email reminders to persons who have not completed training tasks so the Training and HR Team do not need to keep track manually anymore.
+
+A Python system maintains the backend while the frontend is Typescript. Overall, this is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+The product has several details that need to be enhanced since it is just standing at the fundamental stage. 
 
 ## Getting Started
 
