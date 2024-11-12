@@ -1,0 +1,16 @@
+/*For Linux Service*/
+
+[Unit]
+Description=GE Email Tracking Service
+After=network.target
+
+[Service]
+User=your_username
+WorkingDirectory=/path/to/your/backend
+Environment="PATH=/path/to/your/venv/bin"
+ExecStart=/path/to/your/venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

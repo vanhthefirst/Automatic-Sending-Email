@@ -1,7 +1,14 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     darkMode: ["class"],
-    content: [],
+    content: [
+		'./pages/**/*.{ts,tsx,js,jsx}',
+		'./components/**/*.{ts,tsx,js,jsx}',
+		'./app/**/*.{ts,tsx,js,jsx}',
+		'./src/**/*.{ts,tsx,js,jsx}',
+		'./*.{ts,tsx,js,jsx}',  // For files in the root directory
+		// Add paths for any additional directories where you might have components
+	  ],
   theme: {
   	extend: {
   		borderRadius: {
