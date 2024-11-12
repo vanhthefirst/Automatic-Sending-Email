@@ -9,7 +9,8 @@ export async function POST(req: Request) {
     const { filepath } = await req.json();
     
     // Execute Python script
-    const { stdout, stderr } = await execAsync(`python ../../backend/GE Automatic Email Tracking.py ${filepath}`);
+    const { stdout, stderr } = await execAsync(`python ../../backend/ge_automatic_email_tracking
+      .py ${filepath}`);
     
     if (stderr) {
       return NextResponse.json({ error: stderr }, { status: 500 });
