@@ -1,39 +1,55 @@
-import pandas as pd
-import matplotlib.pyplot as plt
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from io import BytesIO
+from typing import Optional, Tuple
+import pandas as pd
+import matplotlib.pyplot as plt
 import smtplib
 import schedule
 import time
-from io import BytesIO
+import os
 import socket
-
-def load_data(file_path):
-    return pd.read_csv(file_path, skiprows=1)
+import logging
 
 
 def get_course_unit_2_indices(data):
-    """Find the start and end indices for Course Unit (2) section"""
+    """Find the start and end indices for Course Units (2) section"""
     course_unit_2_start = None
     course_unit_2_end = None
     
-    for idx, row in data.iterrows():
-        if 'Course Unit (2)' in str(row.iloc[0]):
-            course_unit_2_start = idx + 1  # Start from next row
-        elif course_unit_2_start is not None and pd.isna(row.iloc[0]):
-            course_unit_2_end = idx
+    # First find the column that contains 'Course Units (2)'
+    target_column = None
+    for col in data.columns:
+        if any(text in str(col) for text in "Course Unit (2)"):
+            target_column = col
+            course_unit_2_start = 0  # Start from the first data row
             break
     
+    if target_column:
+        # Now find where this section ends
+        for idx in range(1, len(data)):
+            if pd.isna(data.iloc[idx].iloc[0]) or str(data.iloc[idx].iloc[0]).strip() == '':
+                course_unit_2_end = idx
+                break
+    
+    # If we found the start but not the end (might be at the end of file)
+    if course_unit_2_end is None and course_unit_2_start is not None:
+        course_unit_2_end = len(data)
+    
+    # Add better error handling
+    if course_unit_2_start is None:
+        raise ValueError("Could not find Course Units (2) section in the CSV")
+    if course_unit_2_end is None:
+        raise ValueError("Could not determine the end of Course Units (2) section")
+        
     return course_unit_2_start, course_unit_2_end
 
 
 def generate_chart(data):
-    # Read the CSV data and remove the last two rows
-    data = load_data('Testing Data.csv')
     data = data.iloc[:-3]  # Remove the last three rows which contain notes and totals
     start_idx, end_idx = get_course_unit_2_indices(data)
-    data = data.iloc[start_idx:end_idx] # Extract only Course Unit (2) data
+    data = data.iloc[start_idx:end_idx] # Extract only Course Units (2) data
 
     # Extract supervisor names and Course Units data
     supervisors = data.iloc[:, 0]
@@ -170,95 +186,202 @@ def create_email_content(data_sorted):
     return email_content
 
 
-def extract_ssoID(supervisor_string):
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='email_tracking.log'
+)
+logger = logging.getLogger(__name__)
+
+
+def extract_ssoID(supervisor_string: str) -> Optional[str]:
+    """
+    Extract SSO ID from supervisor string and return email address.
+    Returns None if extraction fails.
+    """
     try:
         if '[' in supervisor_string and ']' in supervisor_string:
             sso_id = supervisor_string.split('[')[-1].strip(']')
-            return f"{sso_id}@ge.com"
+            email = f"{sso_id}@ge.com"
+            logger.info(f"Successfully extracted email: {email}")
+            return email
         else:
-            print(f"No SSO ID found in string: {supervisor_string}")
+            logger.warning(f"No SSO ID found in string: {supervisor_string}")
             return None
     except Exception as e:
-        print(f"Error extracting SSO ID from {supervisor_string}: {str(e)}")
+        logger.error(f"Error extracting SSO ID from {supervisor_string}: {str(e)}")
         return None
 
 
-def send_email(recipient, subject, body, chart):
+def send_email(recipient: str, subject: str, body: str, chart: bytes) -> bool:
+    """
+    Send email with enhanced error handling and logging.
+    Returns True if email was sent successfully, False otherwise.
+    """
     msg = MIMEMultipart()
-    msg['From'] = "223144086@ge.com"
+    sender = os.getenv('SMTP_SENDER', '223144086@ge.com')
+    msg['From'] = sender  # #extract_ssoID(supervisor)
     msg['To'] = recipient
-    msg['Subject'] = subject
-
-    # Create the email content
+    msg['Subject'] = "Course Unit Training Completion Status"
+    
+    # Attach email content
     msg.attach(MIMEText(body, 'html'))
 
-    # Attach the chart image
-    img = MIMEImage(chart)
-    img.add_header('Content-ID', '<task_chart>')
-    msg.attach(img)
+    # Attach chart
+    try:
+        img = MIMEImage(chart)
+        img.add_header('Content-ID', '<task_chart>')
+        msg.attach(img)
+    except Exception as e:
+        logger.error(f"Error attaching chart: {str(e)}")
+        return False
 
     # SMTP Configuration
-    smtp_server = "e2ksmtp01.e2k.ad.ge.com"
-    smtp_port = 25  # Standard SMTP port
+    smtp_config = {
+        'server': os.getenv('SMTP_SERVER', 'e2ksmtp01.e2k.ad.ge.com'),
+        'port': int(os.getenv('SMTP_PORT', '25')),
+        'username': os.getenv('SMTP_USERNAME', None),
+        'password': os.getenv('SMTP_PASSWORD', None),
+        'use_tls': os.getenv('SMTP_USE_TLS', 'True').lower() == 'true'
+    }
 
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.ehlo()  # Say hello to the server
+        logger.info(f"Attempting to connect to SMTP server {smtp_config['server']}:{smtp_config['port']}")
+        with smtplib.SMTP(smtp_config['server'], smtp_config['port'], timeout=30) as server:
+            server.set_debuglevel(1)  # Enable debug output
+            server.ehlo()
             
-            # Only start TLS if supported
-            try:
-                server.starttls()
-                server.ehlo()  # Say hello again after TLS
-            except smtplib.SMTPNotSupportedError:
-                print("TLS not supported by server, continuing without encryption")
-            except Exception as e:
-                print(f"TLS error: {str(e)}, continuing without encryption")
+            if smtp_config['use_tls']:
+                try:
+                    server.starttls()
+                    server.ehlo()
+                    logger.info("TLS connection established")
+                except Exception as e:
+                    logger.warning(f"TLS connection failed: {str(e)}")
             
-            # Send without authentication
+            # Authenticate if credentials provided
+            if smtp_config['username'] and smtp_config['password']:
+                try:
+                    server.login(smtp_config['username'], smtp_config['password'])
+                    logger.info("SMTP authentication successful")
+                except Exception as e:
+                    logger.error(f"SMTP authentication failed: {str(e)}")
+                    return False
+            
             server.send_message(msg)
-            print(f"Email sent successfully to {recipient}")
+            logger.info(f"Email sent successfully to {recipient}")
+            return True
 
     except socket.gaierror as e:
-        print(f"Failed to resolve SMTP server hostname. Error: {str(e)}")
-        print("Please check your SMTP server configuration and network connection.")
+        logger.error(f"DNS lookup failed for {smtp_config['server']}: {str(e)}")
     except smtplib.SMTPException as e:
-        print(f"SMTP error occurred. Error: {str(e)}")
+        logger.error(f"SMTP error: {str(e)}")
     except Exception as e:
-        print(f"Failed to send email to {recipient}. Error: {str(e)}")
-
-
-def process_supervisors(data):
-    start_idx, end_idx = get_course_unit_2_indices(data)
-    course_unit_2_data = data.iloc[start_idx:end_idx]
+        logger.error(f"Unexpected error sending email to {recipient}: {str(e)}")
     
-    for index, row in course_unit_2_data.iterrows():
-        supervisor = row.iloc[0]
-        pending = pd.to_numeric(row.iloc[14], errors='coerce')
-        past_due = pd.to_numeric(row.iloc[13], errors='coerce')
-
-        if (pd.notna(row.get('Pending')) and row.get('Pending', 0) > 0) or (pd.notna(row.get('Past Due')) and row.get('Past Due', 0) > 0):
-            recipient_email = "223144086@ge.com" #extract_ssoID(supervisor)
-            if recipient_email:
-                chart = generate_chart(data)
-                row_data = pd.Series({
-                    'Total': pd.to_numeric(row.iloc[10], errors='coerce'),
-                    'Completion': pd.to_numeric(row.iloc[11], errors='coerce'),
-                    'Past Due': past_due,
-                    'Pending': pending
-                })
-                email_content = create_email_content(row_data)
-                send_email(recipient_email, "Ignore it", email_content, chart)
+    return False
 
 
-def main():
-    data = load_data('Testing Data.csv')
+def process_supervisors(data: pd.DataFrame) -> Tuple[int, int]:
+    """
+    Process supervisors and send emails. Returns tuple of (success_count, failure_count)
+    """
+    success_count = 0
+    failure_count = 0
+    
+    try:
+        start_idx, end_idx = get_course_unit_2_indices(data)
+        if start_idx is None or end_idx is None:
+            logger.error("Could not find Course Units (2) section in CSV")
+            return success_count, failure_count
+            
+        course_unit_2_data = data.iloc[start_idx:end_idx]
+        
+        for index, row in course_unit_2_data.iterrows():
+            try:
+                supervisor = str(row.iloc[0]).strip()
+                if pd.isna(supervisor) or supervisor == '':
+                    continue
+                    
+                # Convert values with better error handling
+                pending = pd.to_numeric(row.iloc[14], errors='coerce') or 0
+                past_due = pd.to_numeric(row.iloc[13], errors='coerce') or 0
+                total = pd.to_numeric(row.iloc[10], errors='coerce') or 0
+                completion = pd.to_numeric(row.iloc[11], errors='coerce') or 0
+
+                # Log the values for debugging
+                logger.info(f"Processing supervisor {supervisor}: pending={pending}, past_due={past_due}")
+                
+                # Check if email should be sent (pending or past due tasks exist)
+                if pending > 0 or past_due > 0:
+                    recipient_email = extract_ssoID(supervisor)
+                    
+                    if recipient_email:
+                        try:
+                            # Generate chart for all data
+                            chart = generate_chart(data)
+                            
+                            # Prepare row data for email
+                            row_data = pd.Series({
+                                'Total': total,
+                                'Completion': completion,
+                                'Past Due': past_due,
+                                'Pending': pending
+                            })
+                            
+                            # Create and send email
+                            email_content = create_email_content(row_data)
+                            if send_email(
+                                recipient_email,
+                                "Course Unit Training Completion Status",
+                                email_content,
+                                chart
+                            ):
+                                success_count += 1
+                                logger.info(f"Email sent successfully to {recipient_email}")
+                            else:
+                                failure_count += 1
+                                logger.error(f"Failed to send email to {recipient_email}")
+                        except Exception as e:
+                            logger.error(f"Error processing supervisor {supervisor}: {str(e)}")
+                            failure_count += 1
+                    else:
+                        logger.warning(f"No valid email extracted for supervisor: {supervisor}")
+                        failure_count += 1
+                else:
+                    logger.info(f"No email needed for {supervisor} (no pending or past due tasks)")
+                    
+            except Exception as e:
+                logger.error(f"Error processing row {index}: {str(e)}")
+                failure_count += 1
+                continue
+        
+        return success_count, failure_count
+        
+    except Exception as e:
+        logger.error(f"Error in process_supervisors: {str(e)}")
+        return success_count, failure_count
+
+
+
+def main(data):  # Modified to accept data parameter
+    """
+    Process supervisors with provided data instead of loading from file
+    """
     process_supervisors(data)
 
 
-def run_scheduled_job():
+def run_scheduled_job(data=None):  # Modified to optionally accept data
+    """
+    Run the scheduled job with provided data or wait for upload
+    """
     print("Running scheduled job...")
-    main()
-    print("Email sent successfully!")
+    if data is not None:
+        main(data)
+        print("Email sent successfully!")
+    else:
+        print("No data provided for scheduled job")
 
 
 # Remove the scheduling logic in case of running the script manually or immediately
