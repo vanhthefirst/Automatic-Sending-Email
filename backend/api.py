@@ -14,7 +14,8 @@ from .ge_automatic_email_tracking import (
     generate_chart,
     create_email_content,
     send_email,
-    get_course_unit_2_indices
+    get_course_unit_2_indices,
+    safe_convert_to_float
 )
 
 # Enhanced logging configuration

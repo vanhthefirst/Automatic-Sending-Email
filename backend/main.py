@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 from api import app
-from ge_automatic_email_tracking import run_scheduled_job
+from .ge_automatic_email_tracking import run_scheduled_job
 from datetime import datetime
 
 # Configure logging
