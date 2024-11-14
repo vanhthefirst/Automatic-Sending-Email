@@ -21,6 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def get_course_unit_2_indices(data: pd.DataFrame) -> Tuple[Optional[int], Optional[int]]:
     """Find the start and end indices for Course Units (2) section."""
     try:
@@ -41,6 +42,7 @@ def get_course_unit_2_indices(data: pd.DataFrame) -> Tuple[Optional[int], Option
         logger.error(f"Error finding Course Units (2) indices: {str(e)}")
         return None, None
 
+
 def safe_convert_to_float(value: any) -> float:
     """Safely convert any value to float, returning 0.0 if conversion fails."""
     try:
@@ -49,6 +51,7 @@ def safe_convert_to_float(value: any) -> float:
         return float(value)
     except (ValueError, TypeError):
         return 0.0
+
 
 def extract_sso_id(supervisor: str) -> Optional[str]:
     """Extract SSO ID from supervisor string and return email address."""
@@ -62,6 +65,7 @@ def extract_sso_id(supervisor: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Error extracting SSO ID from '{supervisor}': {str(e)}")
         return None
+
 
 def generate_chart(data: pd.DataFrame) -> bytes:
     """Generate a visualization chart for the email."""
@@ -118,6 +122,7 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         logger.error(f"Error generating chart: {str(e)}")
         raise
 
+
 def create_email_content(data: dict[str, float]) -> str:
     """Create HTML email content."""
     return f"""
@@ -142,6 +147,7 @@ def create_email_content(data: dict[str, float]) -> str:
     </body>
     </html>
     """
+
 
 def send_email(recipient: str, subject: str, content: str, chart: bytes) -> bool:
     """Send email with chart attachment."""
@@ -168,6 +174,7 @@ def send_email(recipient: str, subject: str, content: str, chart: bytes) -> bool
     except Exception as e:
         logger.error(f"Failed to send email to {recipient}: {str(e)}")
         return False
+
 
 def process_supervisors(data: pd.DataFrame) -> Tuple[int, int]:
     """Process supervisor data and send emails."""
