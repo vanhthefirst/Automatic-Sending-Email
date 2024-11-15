@@ -60,7 +60,7 @@ def extract_sso_id(supervisor: str) -> Optional[str]:
             return None
         if '[' in supervisor and ']' in supervisor:
             sso_id = supervisor.split('[')[-1].strip(']').strip()
-            return f"{sso_id}@ge.com"
+            return f"{sso_id}@geaerospace.com"
         return None
     except Exception as e:
         logger.error(f"Error extracting SSO ID from '{supervisor}': {str(e)}")
@@ -128,7 +128,7 @@ def create_email_content(data: dict[str, float]) -> str:
     return f"""
     <html>
     <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-        <h2 style="color: #2c3e50;">Task Completion Reminder</h2>
+        <h2 style="color: #2c3e50;">Hi, Do you see my email?</h2>
         <p>Dear Team Leader,</p>
         <p>This is a reminder about pending training tasks in your team:</p>
         
@@ -153,7 +153,7 @@ def send_email(recipient: str, subject: str, content: str, chart: bytes) -> bool
     """Send email with chart attachment."""
     try:
         msg = MIMEMultipart()
-        msg['From'] = os.getenv('SMTP_SENDER', '223144086@ge.com')
+        msg['From'] = os.getenv('SMTP_SENDER', '223144086@geaerospace.com')
         msg['To'] = recipient
         msg['Subject'] = subject
         
@@ -217,7 +217,7 @@ def process_supervisors(data: pd.DataFrame) -> Tuple[int, int]:
                         content = create_email_content(metrics)
                         
                         # Send email
-                        if send_email(email, "Training Task Reminder", content, chart):
+                        if send_email(email, "I AM TESTING, DON'T NEED TO CARE", content, chart):
                             success_count += 1
                             logger.info(f"Successfully processed supervisor: {supervisor}")
                         else:
