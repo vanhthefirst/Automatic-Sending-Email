@@ -43,4 +43,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - The backend is in port 8000. Call `python -m uvicorn backend.api:app --reload --port 8000` to start the FastAPI server.
 - Recommend to run server in virtual environment: 
     + Create venv (if you have not already): `python -m venv .venv`
-    + Activate: `.\.venv\Scripts\activate`
+    + Fully Activate: `.venv\Script\activate`
