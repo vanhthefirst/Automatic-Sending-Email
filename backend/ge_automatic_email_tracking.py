@@ -2,7 +2,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from io import BytesIO
-from typing import Optional, Tuple, Dict, Union
+from typing import Optional, Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
 import smtplib
@@ -11,7 +11,7 @@ import time
 import os
 import socket
 import logging
-from datetime import datetime
+
 
 # Configure logging
 logging.basicConfig(
@@ -20,16 +20,6 @@ logging.basicConfig(
     filename='email_tracking.log'
 )
 logger = logging.getLogger(__name__)
-
-class EmailTemplate:
-    """Default email template content."""
-    DEFAULT_TEMPLATE = {
-        "subject": "Training Tasks Update",
-        "greeting": "Dear Team Leader,",
-        "intro": "This is a reminder about pending training tasks in your team:",
-        "action": "Please ensure your team completes any pending or past due tasks by this Friday.",
-        "closing": "Best regards,\nHR Team"
-    }
 
 
 def get_course_unit_2_indices(data: pd.DataFrame) -> Tuple[Optional[int], Optional[int]]:
@@ -78,7 +68,7 @@ def extract_sso_id(supervisor: str) -> Optional[str]:
 
 
 def generate_chart(data: pd.DataFrame) -> bytes:
-    """Generate a visualization chart for the email."""
+    """Generate a visualisation chart for the email."""
     try:
         # Get Course Units (2) section
         start_idx, end_idx = get_course_unit_2_indices(data)
@@ -87,8 +77,8 @@ def generate_chart(data: pd.DataFrame) -> bytes:
             
         # Prepare data for visualisation
         chart_data = []
-        for idx in range(start_idx, end_idx):
-            row = data.iloc[idx - 3]
+        for idx in range(start_idx, end_idx-3):
+            row = data.iloc[idx]
             supervisor = str(row.iloc[0])
             if pd.isna(supervisor) or supervisor.strip() == '':
                 continue
@@ -104,35 +94,36 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         df_chart = df_chart.sort_values('Supervisor', ascending=False)
         
         # Create the chart
-        plt.style.use('seaborn')
         fig, ax = plt.subplots(figsize=(12, max(6, len(df_chart) * 0.4)))
         
         # Plot stacked bars
         left_values = pd.Series(0, index=df_chart.index)
-        colors = ['#2ecc71', '#f1c40f', '#e74c3c']  # Green, Yellow, Red
+        colors = ['#2ecc71', '#f1c40f', '#e74c3c']
         labels = ['Completed', 'Pending', 'Past Due']
-        
+
+        bars = []
         for column, color, label in zip(['Completed', 'Pending', 'Past Due'], colors, labels):
-            ax.barh(df_chart['Supervisor'], df_chart[column], left=left_values, 
-                   color=color, label=label)
+            bar = ax.barh(range(len(df_chart)), df_chart[column], left=left_values, 
+                         color=color, label=label)
+            bars.append(bar)
             left_values += df_chart[column]
+
+        ax.set_yticks(range(len(df_chart)))
+        ax.set_yticklabels(df_chart['Supervisor'])
+
+        total_width = df_chart[['Completed', 'Pending', 'Past Due']].sum(axis=1).max()
         
-        # Customize chart
-        ax.set_title('Task Status by Supervisor', pad=20, fontsize=14)
-        ax.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
-        ax.grid(True, axis='x', alpha=0.3)
-        
-        # Add value labels
-        for i in range(len(df_chart)):
-            x_pos = 0
-            for column in ['Completed', 'Pending', 'Past Due']:
-                value = df_chart[column].iloc[i]
-                if value > 0:
-                    x_pos += value/2
-                    ax.text(x_pos, i, f'{value:.1f}%', 
-                           ha='center', va='center')
-                    x_pos += value/2
-        
+        # Customise chart
+        ax.set_title('Task Progress by Supervisor', pad=50)
+        ax.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncol=3)
+        ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+        for idx, row in df_chart.iterrows():
+            y_pos = list(df_chart.index).index(idx) # Get the correct y position after sorting
+            text = f"{int(row['Completed'])} | {int(row['Pending'])} | {int(row['Past Due'])}"
+            ax.text(total_width * 1.02, y_pos, text, va='center', ha='left', fontsize=9)
+
+        plt.xlim(0, total_width * 1.2)
+        ax.axvline(x=total_width, color='gray', linestyle='--', linewidth=0.8) # Vertical line to separate chart from labels
         plt.tight_layout()
         
         # Save to bytes
@@ -142,75 +133,47 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         plt.close()
         
         return img_buffer.getvalue()
-        
     except Exception as e:
         logger.error(f"Error generating chart: {str(e)}")
         raise
 
 
-def create_email_content(
-    data: Dict[str, float],
-    template: Optional[Dict[str, str]] = None
-) -> str:
-    """
-    Create HTML email content with customizable template.
-    
-    Args:
-        data: Dictionary containing metrics (total, completed, pending, past_due, completion_rate)
-        template: Dictionary containing email template parts (subject, greeting, intro, action, closing)
-    """
-    try:
-        # Use provided template or default
-        email_template = template or EmailTemplate.DEFAULT_TEMPLATE
+def create_email_content(data: dict[str, float]) -> str:
+    """Create HTML email content."""
+    return f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <h2 style="color: #2c3e50;">Knock knock, Sorry for Email Spamming</h2>
+        <p>Dear people,</p>
+        <p>Thank you for accepting this inconvenience.</p>
+        <p>I am testing the connection between frontend and backend by triggering from website to automatically send emails to the respective ones.</p>
+        <p>Please note that all data using here are testing data and unreal.</p>
+        <p>----------------</p>
+        <p>This is a reminder about pending training tasks <u>in your team</u>:</p>
         
-        # Create metrics HTML section
-        metrics_html = f"""
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
             <p><strong>Total Tasks:</strong> {int(data['total'])}</p>
-            <p><strong>Completed:</strong> {int(data['completed'])} ({data['completion_rate']:.1f}%)</p>
+            <p><strong>Completed:</strong> {int(data['completed'])} ({data['completion_rate']:.2f}%)</p>
             <p><strong>Pending:</strong> {int(data['pending'])}</p>
             <p><strong>Past Due:</strong> {int(data['past_due'])}</p>
-        """
+        </div>
         
-        # Full HTML template with custom styling
-        return f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">{email_template['subject']}</h2>
-            <p>{email_template['greeting']}</p>
-            <p>{email_template['intro']}</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                {metrics_html}
-            </div>
-            
-            <p>{email_template['action']}</p>
-            <p>The chart below shows the current status:</p>
-            <img src="cid:task_chart" style="max-width: 100%; height: auto;">
-            
-            <p style="margin-top: 20px;">{email_template['closing']}</p>
-        </body>
-        </html>
-        """
-    except Exception as e:
-        logger.error(f"Error creating email content: {str(e)}")
-        raise
+        <p>Please ensure your team completes any pending or past due tasks by this Friday.</p>
+        <p>The chart below shows the current status of your team and others:</p>
+        <img src="cid:task_chart" style="max-width: 100%; height: auto;">
+        <p> Please inform us if you have any question or enquiry. </p>
+        
+        <p>Best regards,<br>HR Team</p>
+    </body>
+    </html>
+    """
 
 
-# Test without actual email sending
-DEV_MODE = os.getenv('DEV_MODE', 'False').lower() == 'true'
-
-
-def send_email(
-    recipient: str,
-    subject: str,
-    content: str,
-    chart: bytes,
-    sender: Optional[str] = None
-) -> bool:
+def send_email(recipient: str, subject: str, content: str, chart: bytes) -> bool:
     """Send email with chart attachment."""
     try:
         msg = MIMEMultipart()
-        msg['From'] = sender or os.getenv('SMTP_SENDER', '223144086@geaerospace.com')
+        msg['From'] = os.getenv('SMTP_SENDER', '223144086@geaerospace.com')
         msg['To'] = recipient
         msg['Subject'] = subject
         
@@ -223,33 +186,18 @@ def send_email(
         msg.attach(img)
         
         # Send email
-        with smtplib.SMTP(os.getenv('SMTP_SERVER', 'e2ksmtp01.e2k.ad.ge.com'), 25, timeout=10) as server:
-            logger.info(f"Connected to SMTP server successfully")
+        with smtplib.SMTP(os.getenv('SMTP_SERVER', 'e2ksmtp01.e2k.ad.ge.com'), 25) as server:
             server.send_message(msg)
             logger.info(f"Email sent successfully to {recipient}")
             return True
-    except smtplib.SMTPException as smtp_err:
-            logger.error(f"SMTP Error: {str(smtp_err)}")
-            return False
-    except TimeoutError:
-            logger.error("SMTP server connection timeout")
-            return False        
+            
     except Exception as e:
         logger.error(f"Failed to send email to {recipient}: {str(e)}")
         return False
 
 
-def process_supervisors(
-    data: pd.DataFrame,
-    email_template: Optional[Dict[str, str]] = None
-) -> Tuple[int, int]:
-    """
-    Process supervisor data and send emails.
-    
-    Args:
-        data: DataFrame containing supervisor data
-        email_template: Optional dictionary containing email template customization
-    """
+def process_supervisors(data: pd.DataFrame) -> Tuple[int, int]:
+    """Process supervisor data and send emails."""
     success_count = 0
     failure_count = 0
     
@@ -260,11 +208,8 @@ def process_supervisors(
             logger.error("Could not find Course Units (2) section")
             return 0, 0
         
-        # Generate chart once for all emails
-        chart = generate_chart(data)
-        
         # Process each supervisor
-        for idx in range(start_idx, end_idx):
+        for idx in range(start_idx, end_idx-3):
             row = data.iloc[idx]
             supervisor = str(row.iloc[0])
             
@@ -285,14 +230,14 @@ def process_supervisors(
                 
                 # Check if email needed
                 if metrics['pending'] > 0 or metrics['past_due'] > 0:
-                    email = "223144086@geaerospace.com" #extract_sso_id(supervisor)
+                    email = extract_sso_id(supervisor) #"223144086@geaerospace.com"
                     if email:
-                        # Generate email content with template
-                        content = create_email_content(metrics, email_template)
-                        subject = email_template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject']) if email_template else EmailTemplate.DEFAULT_TEMPLATE['subject']
+                        # Generate chart and email content
+                        chart = generate_chart(data)
+                        content = create_email_content(metrics)
                         
                         # Send email
-                        if send_email(email, subject, content, chart):
+                        if send_email(email, "I AM TESTING, DON'T NEED TO CARE", content, chart):
                             success_count += 1
                             logger.info(f"Successfully processed supervisor: {supervisor}")
                         else:
@@ -313,12 +258,25 @@ def process_supervisors(
     return success_count, failure_count
 
 
-def run_scheduled_job(data: Optional[pd.DataFrame] = None) -> Tuple[int, int]:
-    """Run the email processing job."""
+def main(data):
+    try:
+        if data is not None:
+            success_count, failure_count = process_supervisors(data)
+            logger.info(f"Email processing complete. Successes: {success_count}, Failures: {failure_count}")
+            return success_count, failure_count
+        else:
+            logger.warning("No data provided to main function")
+            return 0, 0
+    except Exception as e:
+        logger.error(f"Error in main function: {str(e)}")
+        return 0, 0
+
+
+def run_scheduled_job(data=None):
     try:
         logger.info("Starting scheduled job...")
         if data is not None:
-            success_count, failure_count = process_supervisors(data)
+            success_count, failure_count = main(data)
             logger.info(f"Scheduled job completed. Successes: {success_count}, Failures: {failure_count}")
             return success_count, failure_count
         else:
@@ -327,12 +285,19 @@ def run_scheduled_job(data: Optional[pd.DataFrame] = None) -> Tuple[int, int]:
     except Exception as e:
         logger.error(f"Error in scheduled job: {str(e)}")
         return 0, 0
+    
 
+# Remove the scheduling logic in case of running the script manually or immediately
+# Schedule the job to run daily at a specific time
+#schedule.every().monday.at("14:45").do(run_scheduled_job)
 
 if __name__ == "__main__":
     try:
         print("Script started. Press Ctrl+C to exit.")
         run_scheduled_job()
+        #while True:
+        #    schedule.run_pending()
+        #    time.sleep(60)
         print("Email sending process completed.")
     except KeyboardInterrupt:
         print("Script stopped by user.")
