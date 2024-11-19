@@ -95,6 +95,9 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         
         # Create the chart
         fig, ax = plt.subplots(figsize=(12, max(6, len(df_chart) * 0.4)))
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
         
         # Plot stacked bars
         left_values = pd.Series(0, index=df_chart.index)
