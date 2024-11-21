@@ -78,7 +78,7 @@ def extract_sso_id(supervisor: str) -> Optional[str]:
 
 
 def generate_chart(data: pd.DataFrame) -> bytes:
-    """Generate a visualization chart for the email."""
+    """Generate a visualisation chart for the email."""
     try:
         # Get Course Units (2) section
         start_idx, end_idx = get_course_unit_2_indices(data)
@@ -87,8 +87,8 @@ def generate_chart(data: pd.DataFrame) -> bytes:
             
         # Prepare data for visualisation
         chart_data = []
-        for idx in range(start_idx, end_idx):
-            row = data.iloc[idx - 3]
+        for idx in range(start_idx, end_idx-3):
+            row = data.iloc[idx]
             supervisor = str(row.iloc[0])
             if pd.isna(supervisor) or supervisor.strip() == '':
                 continue
@@ -104,35 +104,39 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         df_chart = df_chart.sort_values('Supervisor', ascending=False)
         
         # Create the chart
-        plt.style.use('seaborn')
         fig, ax = plt.subplots(figsize=(12, max(6, len(df_chart) * 0.4)))
+
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
         
         # Plot stacked bars
         left_values = pd.Series(0, index=df_chart.index)
         colors = ['#2ecc71', '#f1c40f', '#e74c3c']  # Green, Yellow, Red
         labels = ['Completed', 'Pending', 'Past Due']
         
+        bars = []
         for column, color, label in zip(['Completed', 'Pending', 'Past Due'], colors, labels):
-            ax.barh(df_chart['Supervisor'], df_chart[column], left=left_values, 
-                   color=color, label=label)
+            bar = ax.barh(range(len(df_chart)), df_chart[column], left=left_values, 
+                         color=color, label=label)
+            bars.append(bar)
             left_values += df_chart[column]
         
-        # Customize chart
-        ax.set_title('Task Status by Supervisor', pad=20, fontsize=14)
-        ax.legend(bbox_to_anchor=(0.5, -0.15), loc='upper center', ncol=3)
-        ax.grid(True, axis='x', alpha=0.3)
+        ax.set_yticks(range(len(df_chart)))
+        ax.set_yticklabels(df_chart['Supervisor'])
+
+        total_width = df_chart[['Completed', 'Pending', 'Past Due']].sum(axis=1).max()
+
+        # Customise chart
+        ax.set_title('Task Status by Supervisor', pad=50)
+        ax.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncol=3)
+        ax.grid(True, axis='x', linestyle='--', alpha=0.7)
+        for idx, row in df_chart.iterrows():
+            y_pos = list(df_chart.index).index(idx) # Get the correct y position after sorting
+            text = f"{int(row['Completed'])} | {int(row['Pending'])} | {int(row['Past Due'])}"
+            ax.text(total_width * 1.02, y_pos, text, va='center', ha='left', fontsize=9)
         
-        # Add value labels
-        for i in range(len(df_chart)):
-            x_pos = 0
-            for column in ['Completed', 'Pending', 'Past Due']:
-                value = df_chart[column].iloc[i]
-                if value > 0:
-                    x_pos += value/2
-                    ax.text(x_pos, i, f'{value:.1f}%', 
-                           ha='center', va='center')
-                    x_pos += value/2
-        
+        plt.xlim(0, total_width * 1.2)
+        ax.axvline(x=total_width, color='gray', linestyle='--', linewidth=0.8) # Vertical line to separate chart from labels
         plt.tight_layout()
         
         # Save to bytes
@@ -166,7 +170,7 @@ def create_email_content(
         # Create metrics HTML section
         metrics_html = f"""
             <p><strong>Total Tasks:</strong> {int(data['total'])}</p>
-            <p><strong>Completed:</strong> {int(data['completed'])} ({data['completion_rate']:.1f}%)</p>
+            <p><strong>Completed:</strong> {int(data['completed'])} ({data['completion_rate']:.2f}%)</p>
             <p><strong>Pending:</strong> {int(data['pending'])}</p>
             <p><strong>Past Due:</strong> {int(data['past_due'])}</p>
         """
@@ -184,7 +188,7 @@ def create_email_content(
             </div>
             
             <p>{email_template['action']}</p>
-            <p>The chart below shows the current status:</p>
+            <p>The chart below shows the current status of your team and others:</p>
             <img src="cid:task_chart" style="max-width: 100%; height: auto;">
             
             <p style="margin-top: 20px;">{email_template['closing']}</p>
@@ -197,7 +201,7 @@ def create_email_content(
 
 
 # Test without actual email sending
-DEV_MODE = os.getenv('DEV_MODE', 'False').lower() == 'true'
+# DEV_MODE = os.getenv('DEV_MODE', 'False').lower() == 'true'
 
 
 def send_email(
@@ -223,8 +227,7 @@ def send_email(
         msg.attach(img)
         
         # Send email
-        with smtplib.SMTP(os.getenv('SMTP_SERVER', 'e2ksmtp01.e2k.ad.ge.com'), 25, timeout=10) as server:
-            logger.info(f"Connected to SMTP server successfully")
+        with smtplib.SMTP(os.getenv('SMTP_SERVER', 'e2ksmtp01.e2k.ad.ge.com'), 25) as server:
             server.send_message(msg)
             logger.info(f"Email sent successfully to {recipient}")
             return True
@@ -264,7 +267,7 @@ def process_supervisors(
         chart = generate_chart(data)
         
         # Process each supervisor
-        for idx in range(start_idx, end_idx):
+        for idx in range(start_idx, end_idx-3):
             row = data.iloc[idx]
             supervisor = str(row.iloc[0])
             
@@ -313,6 +316,20 @@ def process_supervisors(
     return success_count, failure_count
 
 
+def main(data):
+    try:
+        if data is not None:
+            success_count, failure_count = process_supervisors(data)
+            logger.info(f"Email processing complete. Successes: {success_count}, Failures: {failure_count}")
+            return success_count, failure_count
+        else:
+            logger.warning("No data provided to main function")
+            return 0, 0
+    except Exception as e:
+        logger.error(f"Error in main function: {str(e)}")
+        return 0, 0
+    
+
 def run_scheduled_job(data: Optional[pd.DataFrame] = None) -> Tuple[int, int]:
     """Run the email processing job."""
     try:
@@ -329,10 +346,18 @@ def run_scheduled_job(data: Optional[pd.DataFrame] = None) -> Tuple[int, int]:
         return 0, 0
 
 
+# Remove the scheduling logic in case of running the script manually or immediately
+# Schedule the job to run daily at a specific time
+#schedule.every().monday.at("14:45").do(run_scheduled_job)
+
+
 if __name__ == "__main__":
     try:
         print("Script started. Press Ctrl+C to exit.")
         run_scheduled_job()
+        #while True:
+        #    schedule.run_pending()
+        #    time.sleep(60)
         print("Email sending process completed.")
     except KeyboardInterrupt:
         print("Script stopped by user.")
