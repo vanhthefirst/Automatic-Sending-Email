@@ -1,14 +1,38 @@
 import uvicorn
-from fastapi import FastAPI, HTTPException, Depends, Security
-from fastapi.security import APIKeyHeader
+import logging
+import os
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from pydantic import BaseModel
-from typing import Optional
-import logging
-from api import app
-from .ge_automatic_email_tracking import run_scheduled_job
+from typing import Optional, Union
 from datetime import datetime
+from dotenv import load_dotenv
+from .api import router, initialise_api
+from .ge_automatic_email_tracking import process_supervisors
+
+load_dotenv()
+app = FastAPI()
+
+# Environment variables
+ALLOWED_ORIGINS = [
+    os.getenv('FRONTEND_URL', 'http://localhost:3000'),
+    'http://172.24.29.224:3000',  # Your specific frontend URL
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000'
+]
+
+API_KEY = os.getenv('API_KEY')
+
+if not API_KEY:
+    raise ValueError("API_KEY must be set in environment variables")
+
+# Initialise API with the API key
+initialise_api(API_KEY)
 
 # Configure logging
 logging.basicConfig(
@@ -21,161 +45,143 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# API Key security setup
-API_KEY_NAME = "X-API-Key"
-API_KEY = "your-secret-api-key-here"  # Store this securely in environment variables
-api_key_header = APIKeyHeader(name=API_KEY_NAME)
+# Schedule models
+class ScheduleBase(BaseModel):
+    job_id: Optional[str] = None
+
+class ImmediateEmailSchedule(ScheduleBase):
+    send_now: bool = True
+
+class OneTimeEmailSchedule(ScheduleBase):
+    schedule_time: datetime # "2024-11-25T09:00:00"
+
+class RecurringEmailSchedule(ScheduleBase):
+    cron_expression: str # "30 8 * * FRI" for every Friday at 8:30 AM
+    description: Optional[str] = None
+
+class EmailScheduleRequest(BaseModel):
+    schedule_type: str  # "immediate", "one_time", or "recurring"
+    schedule: Union[ImmediateEmailSchedule, OneTimeEmailSchedule, RecurringEmailSchedule]
+
+class ScheduleResponse(BaseModel):
+    success: bool
+    message: str
+    job_id: Optional[str] = None
+    next_run_time: Optional[datetime] = None
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Add your frontend URL
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*", "X-API-Key"],  # Include API Key header
-    expose_headers=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*", "X-API-Key", "Content-Type", "Authorisation"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
-async def get_api_key(api_key_header: str = Security(api_key_header)):
-    if api_key_header == API_KEY:
-        return api_key_header
-    raise HTTPException(
-        status_code=401,
-        detail="Invalid API Key"
-    )
-
-# Request models
-class EmailRequest(BaseModel):
-    recipient: str
-    subject: Optional[str] = None
-    body: Optional[str] = None
-
-class ScheduleEmailRequest(EmailRequest):
-    schedule_time: datetime
-    day_of_week: Optional[str] = None  # 'mon', 'tue', etc.
-    hour: Optional[int] = None
-    minute: Optional[int] = None
-    is_recurring: bool = False
-
-# Initialize the scheduler
 scheduler = BackgroundScheduler()
 
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "scheduler_running": scheduler.running
-    }
-
-@app.post("/send-email")
-async def send_email(
-    email_request: EmailRequest,
-    api_key: str = Depends(get_api_key)
-):
+def add_email_job(schedule_request: EmailScheduleRequest) -> ScheduleResponse:
+    """Add a new email job to the scheduler based on schedule type."""
     try:
-        logger.info(f"Attempting to send email to {email_request.recipient}")
-        result = run_scheduled_job(
-            recipient=email_request.recipient,
-            subject=email_request.subject,
-            body=email_request.body
-        )
-        logger.info("Email sent successfully")
-        return {"status": "success", "message": "Email sent successfully"}
-    except Exception as e:
-        logger.error(f"Failed to send email: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        schedule = schedule_request.schedule
+        job_id = schedule.job_id or f"email_job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-@app.post("/schedule-email")
-async def schedule_email(
-    schedule_request: ScheduleEmailRequest,
-    api_key: str = Depends(get_api_key)
-):
-    try:
-        if schedule_request.is_recurring:
-            if not all([schedule_request.day_of_week, schedule_request.hour, schedule_request.minute]):
-                logger.error("Missing required fields for recurring email")
-                raise HTTPException(
-                    status_code=400,
-                    detail="For recurring emails, day_of_week, hour, and minute are required"
-                )
-            
-            logger.info(f"Scheduling recurring email for {schedule_request.recipient}")
-            # Schedule recurring job
-            job = scheduler.add_job(
-                run_scheduled_job,
-                'cron',
-                day_of_week=schedule_request.day_of_week,
-                hour=schedule_request.hour,
-                minute=schedule_request.minute,
-                args=[
-                    schedule_request.recipient,
-                    schedule_request.subject,
-                    schedule_request.body
-                ]
+        if schedule_request.schedule_type == "immediate":
+            # Run job immediately
+            process_supervisors()
+            return ScheduleResponse(
+                success=True,
+                message="Email sent immediately",
+                job_id=job_id,
+                next_run_time=datetime.now()
             )
-            return {
-                "status": "success",
-                "message": "Email scheduled recurring",
-                "job_id": job.id
-            }
-        else:
-            logger.info(f"Scheduling one-time email for {schedule_request.recipient}")
+
+        elif schedule_request.schedule_type == "one_time":
+            if not isinstance(schedule, OneTimeEmailSchedule):
+                raise ValueError("Invalid schedule type for one-time email")
+                
             # Schedule one-time job
             job = scheduler.add_job(
-                run_scheduled_job,
-                'date',
-                run_date=schedule_request.schedule_time,
-                args=[
-                    schedule_request.recipient,
-                    schedule_request.subject,
-                    schedule_request.body
-                ]
+                process_supervisors,
+                trigger=DateTrigger(run_date=schedule.schedule_time),
+                id=job_id
             )
-            return {
-                "status": "success",
-                "message": "Email scheduled one-time",
-                "job_id": job.id
-            }
-    except Exception as e:
-        logger.error(f"Failed to schedule email: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+            return ScheduleResponse(
+                success=True,
+                message=f"Email scheduled for {schedule.schedule_time}",
+                job_id=job.id,
+                next_run_time=job.next_run_time
+            )
 
-@app.delete("/cancel-scheduled-email/{job_id}")
-async def cancel_scheduled_email(
-    job_id: str,
-    api_key: str = Depends(get_api_key)
-):
+        elif schedule_request.schedule_type == "recurring":
+            if not isinstance(schedule, RecurringEmailSchedule):
+                raise ValueError("Invalid schedule type for recurring email")
+                
+            # Schedule recurring job
+            job = scheduler.add_job(
+                process_supervisors,
+                trigger=CronTrigger.from_crontab(schedule.cron_expression),
+                id=job_id,
+                name=schedule.description or f"Recurring email job {job_id}"
+            )
+            return ScheduleResponse(
+                success=True,
+                message=f"Recurring email scheduled with expression: {schedule.cron_expression}",
+                job_id=job.id,
+                next_run_time=job.next_run_time
+            )
+        else:
+            raise ValueError(f"Invalid schedule type: {schedule_request.schedule_type}")
+
+    except Exception as e:
+        logger.error(f"Failed to schedule email job: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+app.include_router(router, prefix="/api")
+
+# Direct app routes (non-API endpoints)
+@app.get("/scheduled-jobs")
+async def get_scheduled_jobs():
+    """Get all scheduled email jobs."""
+    jobs = scheduler.get_jobs()
+    return {
+        "jobs": [
+            {
+                "job_id": job.id,
+                "name": job.name,
+                "next_run_time": job.next_run_time,
+                "trigger": str(job.trigger)
+            }
+            for job in jobs
+        ]
+    }
+
+@app.get("/health")
+async def health_check():
+    """Application health check endpoint."""
+    return {
+        "status": "healthy",
+        "scheduler": scheduler.running
+    }
+
+@app.post("/schedule-email")
+async def schedule_email(request: EmailScheduleRequest) -> ScheduleResponse:
+    """Schedule an email with specified timing."""
+    return add_email_job(request)
+
+@app.delete("/cancel-job/{job_id}")
+async def cancel_job(job_id: str):
+    """Cancel a scheduled job."""
     try:
         scheduler.remove_job(job_id)
-        logger.info(f"Cancelled scheduled email with job ID: {job_id}")
-        return {"status": "success", "message": "Scheduled email cancelled"}
+        return {"success": True, "message": f"Job {job_id} cancelled"}
     except Exception as e:
-        logger.error(f"Failed to cancel scheduled email: {str(e)}")
-        raise HTTPException(status_code=404, detail="Scheduled email not found")
-
-@app.get("/scheduled-emails")
-async def get_scheduled_emails(
-    api_key: str = Depends(get_api_key)
-):
-    try:
-        jobs = scheduler.get_jobs()
-        return {
-            "scheduled_emails": [
-                {
-                    "job_id": job.id,
-                    "next_run_time": job.next_run_time,
-                    "trigger": str(job.trigger)
-                }
-                for job in jobs
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Failed to get scheduled emails: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=404, detail=f"Job not found: {str(e)}")
 
 def start_scheduler():
+    """Initialize and start the APScheduler."""
     try:
         scheduler.start()
         logger.info("APScheduler started successfully")
@@ -185,18 +191,7 @@ def start_scheduler():
 
 if __name__ == "__main__":
     try:
-        # Start the scheduler
         start_scheduler()
-        
-        # Add default Wednesday 2:30 PM job if needed
-        scheduler.add_job(
-            run_scheduled_job,
-            'cron',
-            day_of_week='wed',
-            hour=14,
-            minute=30,
-            id='default_wednesday_job'
-        )
         
         # Run the FastAPI application
         logger.info("Starting FastAPI application...")

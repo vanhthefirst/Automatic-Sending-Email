@@ -1,7 +1,33 @@
-fastapi
-uvicorn
-python-multipart
-pandas
-matplotlib
-schedule
-python-dateutil
+# Web Framework and API
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# Data Processing
+pandas>=2.1.1
+numpy>=1.24.0
+matplotlib>=3.8.0
+
+# Email and Scheduling
+schedule>=1.2.0
+python-dateutil>=2.8.2
+
+# Environment and Security
+python-dotenv>=1.0.0
+pydantic>=2.4.2
+
+# Background Tasks
+APScheduler>=3.10.4
+
+# Logging and Monitoring
+logging>=0.5.1
+
+# Development Tools
+pytest>=7.4.2          # For testing
+black>=23.9.1          # For code formatting
+isort>=5.12.0          # For import sorting
+flake8>=6.1.0          # For linting
+
+# Optional but recommended
+openpyxl>=3.1.2        # For Excel file support
+pillow>=10.0.1         # For image processing support
