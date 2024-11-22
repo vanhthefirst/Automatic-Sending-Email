@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Eye, Send, Upload } from 'lucide-react';
+import { Eye, Send } from 'lucide-react';
 
 
 interface EmailPreviewEditorProps {
@@ -30,7 +30,8 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
   emailContent, 
   onContentChange, 
   onProcess,
-  previewChart 
+  previewChart,
+  metrics 
 }) => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
@@ -44,6 +45,15 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
 
   const [template, setTemplate] = useState(defaultEmailTemplate);
 
+  const MetricsDisplay = () => (
+    <div className="bg-gray-50 p-5 rounded-lg my-5">
+      <p><strong>Total Tasks:</strong> {metrics.total}</p>
+      <p><strong>Completed:</strong> {metrics.completed} ({metrics.completion_rate.toFixed(2)}%)</p>
+      <p><strong>Pending:</strong> {metrics.pending}</p>
+      <p><strong>Past Due:</strong> {metrics.past_due}</p>
+    </div>
+  );
+
 interface EmailTemplate {
     subject: string;
     greeting: string;
@@ -55,6 +65,13 @@ interface EmailTemplate {
 const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
     const newTemplate = { ...template, [field]: value };
     setTemplate(newTemplate);
+
+    const metricsHtml = `
+      <p><strong>Total Tasks:</strong> ${metrics.total}</p>
+      <p><strong>Completed:</strong> ${metrics.completed} (${metrics.completion_rate.toFixed(2)}%)</p>
+      <p><strong>Pending:</strong> ${metrics.pending}</p>
+      <p><strong>Past Due:</strong> ${metrics.past_due}</p>
+    `;
     
     // Generate new HTML content
     const newContent = `
@@ -65,14 +82,14 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
                 <p>${newTemplate.intro}</p>
                 
                 <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                        {metrics_placeholder}
+                        ${metricsHtml}
                 </div>
                 
                 <p>${newTemplate.action}</p>
-                <p>The chart below shows the current status:</p>
+                <p>The chart below shows the current status of your team and others:</p>
                 <img src="cid:task_chart" style="max-width: 100%; height: auto;">
                 
-                <p>${newTemplate.closing}</p>
+                <p style="margin-top: 20px;">${newTemplate.closing}</p>
         </body>
         </html>
     `;
@@ -135,12 +152,15 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
         
         <TabsContent value="preview">
           <Card className="p-6">
-            <h2 className="text-2xl font-semibold mb-4">{template.subject}</h2>
+            <h2 className="text-2xl font-semibold text-[#2c3e50] mb-4">{template.subject}</h2>
             <div className="space-y-4">
               <p>{template.greeting}</p>
               <p>{template.intro}</p>
+              <MetricsDisplay />
+              <p>{template.action}</p>
               {previewChart && (
                 <div className="my-4">
+                  <p>The chart below shows the current status of your team and others:</p>
                   <img 
                     src={`data:image/png;base64,${previewChart}`} 
                     alt="Task Status Chart"
@@ -148,8 +168,7 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
                   />
                 </div>
               )}
-              <p>{template.action}</p>
-              <p className="whitespace-pre-line">{template.closing}</p>
+              <p className="mt-5 whitespace-pre-line">{template.closing}</p>
             </div>
           </Card>
         </TabsContent>
@@ -184,8 +203,11 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
               <div className="space-y-4">
                 <p>{template.greeting}</p>
                 <p>{template.intro}</p>
+                <MetricsDisplay />
+                <p>{template.action}</p>
                 {previewChart && (
                   <div className="my-4">
+                    <p>The chart below shows the current status of your team and others:</p>
                     <img 
                       src={`data:image/png;base64,${previewChart}`} 
                       alt="Task Status Chart"
@@ -193,8 +215,7 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
                     />
                   </div>
                 )}
-                <p>{template.action}</p>
-                <p className="whitespace-pre-line">{template.closing}</p>
+                <p className="mt-5 whitespace-pre-line">{template.closing}</p>
               </div>
             </Card>
           </div>
