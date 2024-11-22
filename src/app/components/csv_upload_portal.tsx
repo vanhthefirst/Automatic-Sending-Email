@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Card } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Upload, FileText, Loader2, Eye, Send } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
-import EmailPreviewEditor from './email_preview';
+import React, { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Upload, FileText, Loader2, Eye, Send } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import EmailPreviewEditor from "./email_preview";
 
 interface UploadResponse {
   success: boolean;
@@ -36,7 +36,7 @@ interface ErrorResponse {
 interface FileItem {
   name: string;
   size: number;
-  status: 'complete' | 'processing' | 'error';
+  status: "complete" | "processing" | "error";
   message?: string;
 }
 
@@ -50,12 +50,12 @@ interface EmailTemplate {
 
 // API endpoints configuration
 const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  API_KEY: process.env.NEXT_PUBLIC_API_KEY || '',
+  BASE_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  API_KEY: process.env.NEXT_PUBLIC_API_KEY || "123",
   ENDPOINTS: {
-    PREVIEW: '/api/preview-email',
-    PROCESS: '/api/process-emails',
-  }
+    PREVIEW: "/api/preview-email",
+    PROCESS: "/api/process-emails",
+  },
 };
 
 const CSVUpload = () => {
@@ -65,14 +65,17 @@ const CSVUpload = () => {
   const [result, setResult] = useState<UploadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<FileItem[]>([]);
-  const [currentStep, setCurrentStep] = useState<'upload' | 'preview' | 'complete'>('upload');
+  const [currentStep, setCurrentStep] = useState<
+    "upload" | "preview" | "complete"
+  >("upload");
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [template, setTemplate] = useState<EmailTemplate>({
     subject: "Training Tasks Update",
     greeting: "Dear Team Leader,",
     intro: "This is a reminder about pending training tasks in your team:",
-    action: "Please ensure your team completes any pending or past due tasks by this Friday.",
-    closing: "Best regards,\nHR Team"
+    action:
+      "Please ensure your team completes any pending or past due tasks by this Friday.",
+    closing: "Best regards,\nHR Team",
   });
 
   useEffect(() => {
@@ -86,16 +89,19 @@ const CSVUpload = () => {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.type === 'text/csv' || selectedFile.name.endsWith('.csv')) {
+      if (
+        selectedFile.type === "text/csv" ||
+        selectedFile.name.endsWith(".csv")
+      ) {
         setFile(selectedFile);
         setError(null);
-        setCurrentStep('upload');
+        setCurrentStep("upload");
         toast({
           title: "File selected",
           description: `${selectedFile.name} ready for upload`,
         });
       } else {
-        setError('Please select a valid CSV file');
+        setError("Please select a valid CSV file");
         setFile(null);
         toast({
           variant: "destructive",
@@ -109,32 +115,30 @@ const CSVUpload = () => {
   const makeAPIRequest = async (endpoint: string, formData: FormData) => {
     try {
       const response = await fetch(`${API_CONFIG.BASE_URL}${endpoint}`, {
-          method: 'POST',
-          headers: {
-              'X-API-Key': API_CONFIG.API_KEY,
-          },
-          mode: 'cors',
-          credentials: 'include',
-          body: formData,
+        method: "POST",
+        headers: {
+          "X-API-Key": API_CONFIG.API_KEY,
+        },
+        body: formData,
       });
 
-      console.log('Response status:', response.status);
+      console.log("Response status:", response.status);
 
       if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'Request failed');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Request failed");
       }
 
       return await response.json();
-  } catch (error) {
-      console.error('API Request failed:', error);
+    } catch (error) {
+      console.error("API Request failed:", error);
       throw error;
-  }
-};
+    }
+  };
 
   const handlePreview = async () => {
     if (!file) {
-      setError('Please select a file first');
+      setError("Please select a file first");
       return;
     }
 
@@ -142,19 +146,20 @@ const CSVUpload = () => {
     setError(null);
 
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('template', JSON.stringify(template));
+    formData.append("file", file);
+    // formData.append("template", JSON.stringify(template));
 
     try {
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PREVIEW, formData);
       setPreviewData(data);
-      setCurrentStep('preview');
+      setCurrentStep("preview");
       toast({
         title: "Preview Generated",
         description: "You can now review and edit the email content",
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to generate preview';
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to generate preview";
       setError(errorMessage);
       toast({
         variant: "destructive",
@@ -171,36 +176,37 @@ const CSVUpload = () => {
 
     setLoading(true);
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('template', JSON.stringify(template));
+    formData.append("file", file);
+    formData.append("template", JSON.stringify(template));
 
     // Add file to recent uploads
     const newFileItem: FileItem = {
       name: file.name,
       size: file.size,
-      status: 'processing'
+      status: "processing",
     };
-    
-    setRecentFiles(prev => [newFileItem, ...prev]);
+
+    setRecentFiles((prev) => [newFileItem, ...prev]);
 
     try {
+      console.log("Making request to process emails");
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PROCESS, formData);
       setResult(data);
-      setCurrentStep('complete');
-      
+      setCurrentStep("complete");
+
       // Update file status
-      setRecentFiles(prev => 
-        prev.map(f => 
-          f.name === file.name 
-            ? { 
+      setRecentFiles((prev) =>
+        prev.map((f) =>
+          f.name === file.name
+            ? {
                 ...f,
-                status: 'complete',
-                message: `Processed ${data.processed_rows} rows. ${data.email_success} emails sent successfully, ${data.email_failure} failed.`
-              } 
+                status: "complete",
+                message: `Processed ${data.processed_rows} rows. ${data.email_success} emails sent successfully, ${data.email_failure} failed.`,
+              }
             : f
         )
       );
-      
+
       toast({
         title: "Processing Complete",
         description: `Successfully sent ${data.email_success} emails`,
@@ -209,17 +215,18 @@ const CSVUpload = () => {
       // Clear file input
       setFile(null);
       if (document.querySelector<HTMLInputElement>('input[type="file"]')) {
-        (document.querySelector<HTMLInputElement>('input[type="file"]')!).value = '';
+        document.querySelector<HTMLInputElement>('input[type="file"]')!.value =
+          "";
       }
-      
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-      
+      const errorMessage =
+        err instanceof Error ? err.message : "Unknown error occurred";
+
       // Update file status to error
-      setRecentFiles(prev => 
-        prev.map(f => 
-          f.name === file.name 
-            ? { ...f, status: 'error', message: errorMessage } 
+      setRecentFiles((prev) =>
+        prev.map((f) =>
+          f.name === file.name
+            ? { ...f, status: "error", message: errorMessage }
             : f
         )
       );
@@ -238,13 +245,13 @@ const CSVUpload = () => {
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   const handleBackToUpload = () => {
-    setCurrentStep('upload');
+    setCurrentStep("upload");
     setPreviewData(null);
     setError(null);
   };
@@ -254,29 +261,35 @@ const CSVUpload = () => {
       <div className="w-full max-w-4xl mx-auto py-8">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">CSV Upload Portal</h1>
-          <p className="text-gray-600">Upload your CSV files for email automation</p>
+          <p className="text-gray-600">
+            Upload your CSV files for email automation
+          </p>
         </div>
 
-        {currentStep === 'upload' && (
+        {currentStep === "upload" && (
           <Card className="w-full bg-white shadow-lg p-6">
-            <div 
+            <div
               className="w-full border-2 border-dashed border-gray-200 rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
               onDragOver={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                e.currentTarget.classList.add('border-blue-400');
+                e.currentTarget.classList.add("border-blue-400");
               }}
               onDragLeave={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                e.currentTarget.classList.remove('border-blue-400');
+                e.currentTarget.classList.remove("border-blue-400");
               }}
               onDrop={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                e.currentTarget.classList.remove('border-blue-400');
+                e.currentTarget.classList.remove("border-blue-400");
                 const droppedFile = e.dataTransfer.files[0];
-                if (droppedFile && (droppedFile.type === 'text/csv' || droppedFile.name.endsWith('.csv'))) {
+                if (
+                  droppedFile &&
+                  (droppedFile.type === "text/csv" ||
+                    droppedFile.name.endsWith(".csv"))
+                ) {
                   setFile(droppedFile);
                   setError(null);
                   toast({
@@ -284,7 +297,7 @@ const CSVUpload = () => {
                     description: `${droppedFile.name} ready for upload`,
                   });
                 } else {
-                  setError('Please drop a valid CSV file');
+                  setError("Please drop a valid CSV file");
                   toast({
                     variant: "destructive",
                     title: "Invalid file type",
@@ -319,8 +332,8 @@ const CSVUpload = () => {
             </div>
 
             <div className="flex justify-center mt-6">
-              <Button 
-                onClick={handlePreview} 
+              <Button
+                onClick={handlePreview}
                 disabled={loading || !file}
                 className="w-full sm:w-64"
                 variant={loading ? "outline" : "default"}
@@ -342,12 +355,12 @@ const CSVUpload = () => {
           </Card>
         )}
 
-        {currentStep === 'preview' && previewData && (
+        {currentStep === "preview" && previewData && (
           <div className="space-y-6">
             <Card className="w-full bg-white shadow-lg p-6">
               <div className="flex justify-between items-center mb-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={handleBackToUpload}
                   size="sm"
                 >
@@ -356,7 +369,9 @@ const CSVUpload = () => {
               </div>
               <EmailPreviewEditor
                 emailContent={template.intro}
-                onContentChange={(content: string) => setTemplate(prev => ({ ...prev, intro: content }))}
+                onContentChange={(content: string) =>
+                  setTemplate((prev) => ({ ...prev, intro: content }))
+                }
                 onProcess={handleProcess}
                 previewChart={previewData.chart}
                 metrics={previewData.metrics}
@@ -385,21 +400,30 @@ const CSVUpload = () => {
                     <FileText className="w-5 h-5 text-blue-500" />
                     <div>
                       <p className="font-medium">{file.name}</p>
-                      <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+                      <p className="text-sm text-gray-500">
+                        {formatFileSize(file.size)}
+                      </p>
                       {file.message && (
-                        <p className="text-sm text-gray-600 mt-1">{file.message}</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {file.message}
+                        </p>
                       )}
                     </div>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-sm ${
-                    file.status === 'complete' 
-                      ? 'bg-green-100 text-green-800'
-                      : file.status === 'error'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}>
-                    {file.status === 'complete' ? 'Complete' : 
-                     file.status === 'error' ? 'Error' : 'Processing'}
+                  <span
+                    className={`px-3 py-1 rounded-full text-sm ${
+                      file.status === "complete"
+                        ? "bg-green-100 text-green-800"
+                        : file.status === "error"
+                        ? "bg-red-100 text-red-800"
+                        : "bg-blue-100 text-blue-800"
+                    }`}
+                  >
+                    {file.status === "complete"
+                      ? "Complete"
+                      : file.status === "error"
+                      ? "Error"
+                      : "Processing"}
                   </span>
                 </div>
               ))}

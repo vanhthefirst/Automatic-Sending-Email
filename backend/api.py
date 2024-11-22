@@ -27,7 +27,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 router = APIRouter()
-app.include_router(router, prefix="/api")
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+@app.get("/test")
+async def test_route():
+    return {"message": "Test route is working"}
+
+@app.on_event("startup")
+async def list_routes():
+    for route in app.routes:
+        print(route.path, route.methods)
 
 class EmailTemplate(BaseModel):
     subject: str
@@ -56,7 +73,7 @@ class ErrorDetail(BaseModel):
 
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME)
-API_KEY = None
+API_KEY = "123"
 
 async def get_api_key(api_key_header: str = Security(api_key_header)):
     if api_key_header == API_KEY:
@@ -126,7 +143,7 @@ def get_row_metrics(data: pd.DataFrame, row_index: int) -> Dict[str, float]:
 async def upload_csv(
     response: Response,
     file: UploadFile = File(...),
-    api_key: str = Depends(get_api_key)
+    # api_key: str = Depends(get_api_key)
 ) -> ProcessResponse:
     """ Upload and validate CSV file without processing emails. """
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -201,7 +218,7 @@ async def process_emails(
     response: Response,
     file: UploadFile = File(...),
     template: EmailTemplate = None,
-    api_key: str = Depends(get_api_key)
+    # api_key: str = Depends(get_api_key)
 ) -> ProcessResponse:
     """ Process CSV file and send emails with custom template. """
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -259,3 +276,5 @@ async def general_exception_handler(request, exc):
         content={"detail": "Internal server error"},
         headers={"Access-Control-Allow-Origin": "*"}
     )
+    
+app.include_router(router, prefix="/api")
