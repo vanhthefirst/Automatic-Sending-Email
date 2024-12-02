@@ -84,7 +84,6 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     )
 
 def initialise_api(api_key: str):
-    """Initialise the API with the provided API key."""
     global API_KEY
     API_KEY = api_key
 
@@ -94,14 +93,13 @@ def initialise_api(api_key: str):
 async def options_handler(response: Response):
     response.headers.update({
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
         "Access-Control-Max-Age": "86400",
     })
     return {}
 
 def validate_csv(df: pd.DataFrame) -> bool:
-    """ Validate the structure of the uploaded CSV file. """
     try:        
         if len(df) < 1:
             raise ValueError("CSV file is empty")
@@ -118,7 +116,6 @@ def validate_csv(df: pd.DataFrame) -> bool:
         raise ValueError(f"CSV validation failed: {str(e)}")
 
 def get_row_metrics(data: pd.DataFrame, row_index: int) -> Dict[str, float]:
-    """Extract metrics for a specific row."""
     try:
         row = data.iloc[row_index]
         metrics = {
@@ -145,7 +142,6 @@ async def upload_csv(
     file: UploadFile = File(...),
     # api_key: str = Depends(get_api_key)
 ) -> ProcessResponse:
-    """ Upload and validate CSV file without processing emails. """
     response.headers["Access-Control-Allow-Origin"] = "*"
     try:
         # Read CSV content
@@ -176,31 +172,25 @@ async def upload_csv(
 async def preview_email(
     response: Response,
     file: UploadFile = File(...),
-    template: EmailTemplate = None,
+    # template: EmailTemplate = None,
     row_index: int = 0,
-    api_key: str = Depends(get_api_key)
+    # api_key: str = Depends(get_api_key)
 ) -> PreviewResponse:
-    """ Generate preview of email content and chart for a specific row. """
     response.headers["Access-Control-Allow-Origin"] = "*"
     try:
-        # Read CSV content
         content = await file.read()
         df = pd.read_csv(BytesIO(content))
         
-        # Validate CSV
         if not validate_csv(df):
             raise ValueError("Invalid CSV structure")
-            
-        # Get metrics for preview
-        metrics = get_row_metrics(df, row_index)
         
-        # Generate chart
+        metrics = get_row_metrics(df, row_index)
         chart_bytes = generate_chart(df)
         chart_base64 = base64.b64encode(chart_bytes).decode()
         
         # Generate email content with template
-        template_dict = template.model_dump() if template else None
-        email_content = create_email_content(metrics, template_dict)
+        # template_dict = template.model_dump() if template else None
+        email_content = create_email_content(metrics, None)
         
         return PreviewResponse(
             success=True,
@@ -217,10 +207,7 @@ async def preview_email(
 async def process_emails(
     response: Response,
     file: UploadFile = File(...),
-    template: EmailTemplate = None,
-    # api_key: str = Depends(get_api_key)
 ) -> ProcessResponse:
-    """ Process CSV file and send emails with custom template. """
     response.headers["Access-Control-Allow-Origin"] = "*"
     try:
         # Read CSV content
@@ -230,9 +217,14 @@ async def process_emails(
         # Validate CSV
         if not validate_csv(df):
             raise ValueError("Invalid CSV structure")
-            
-        # Convert template to dict for processing
-        template_dict = template.model_dump() if template else None
+
+        template_dict = {
+            "subject": "Training Tasks Update",
+            "greeting": "Dear Team Leader,",
+            "intro": "This is a reminder about pending training tasks in your team:",
+            "action": "Please ensure your team completes any pending or past due tasks by this Friday.",
+            "closing": "Best regards,\nHR Team"
+        }
         
         # Process emails
         success_count, failure_count = process_supervisors(df, template_dict)

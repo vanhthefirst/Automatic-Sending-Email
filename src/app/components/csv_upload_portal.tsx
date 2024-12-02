@@ -177,7 +177,7 @@ const CSVUpload = () => {
     setLoading(true);
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("template", JSON.stringify(template));
+    // formData.append("template", JSON.stringify(template));
 
     // Add file to recent uploads
     const newFileItem: FileItem = {
