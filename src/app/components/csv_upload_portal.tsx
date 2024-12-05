@@ -48,10 +48,10 @@ interface EmailTemplate {
   closing: string;
 }
 
-// API endpoints configuration
+// API endpoint configuration
 const API_CONFIG = {
   BASE_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
-  API_KEY: process.env.NEXT_PUBLIC_API_KEY || "123",
+  API_KEY: process.env.NEXT_PUBLIC_API_KEY as string,
   ENDPOINTS: {
     PREVIEW: "/api/preview-email",
     PROCESS: "/api/process-emails",
