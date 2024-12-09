@@ -45,3 +45,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
     + Create venv (if you have not already): `python -m venv .venv`
     + Fully Activate: `.\.venv\Scripts\activate`
 - Please create `.env` and `.env.local` file locally. Do not push them to GitHub as it secures system's API key.
+- Run `vercel` and `vercel --prod` to deploy the frontend.
