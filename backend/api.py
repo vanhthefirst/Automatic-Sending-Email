@@ -1,220 +1,271 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, APIRouter, UploadFile, Response, File, HTTPException, Security, Depends
+from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Dict, Optional
 import pandas as pd
-from io import StringIO
-from typing import Dict, Any, Optional
-from datetime import datetime
+from io import BytesIO
+import base64
 import logging
-import traceback
-
-# Import functions from your script
+from datetime import datetime
 from .ge_automatic_email_tracking import (
     process_supervisors,
     generate_chart,
-    create_email_content,
-    send_email,
     get_course_unit_2_indices,
-    safe_convert_to_float
+    safe_convert_to_float,
+    create_email_content
 )
 
-# Enhanced logging configuration
+# Configure logging
 logging.basicConfig(
-    filename='api.log',
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='api_endpoints.log'
 )
-
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="CSV Processing API", version="1.0.0")
+app = FastAPI()
+router = APIRouter()
 
-# Configure CORS with more specific settings
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"]
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
 
-def validate_csv_data(data: pd.DataFrame) -> Optional[str]:
-    """
-    Validate the CSV data structure and content.
-    Returns error message if validation fails, None if successful.
-    """
-    try:
-        # Check if dataframe is empty
-        if data.empty:
-            return "CSV file is empty"
-            
-        # Check for required columns
-        required_columns = [0, 10, 11, 13, 14]  # Column indices we need
-        if not all(i < data.shape[1] for i in required_columns):
-            return "CSV file is missing required columns"
-            
-        # Validate Course Units (2) section exists
-        try:
-            start_idx, end_idx = get_course_unit_2_indices(data)
-            if start_idx is None or end_idx is None or start_idx >= end_idx:
-                return "Invalid Course Units (2) section structure in the CSV"
-        except ValueError as ve:
-            return str(ve)
-        except Exception as e:
-            return f"Error validating Course Units (2) section: {str(e)}"
-            
-        return None
-    except Exception as e:
-        logger.error(f"Data validation error: {str(e)}")
-        return f"Data validation failed: {str(e)}"
+@app.get("/test")
+async def test_route():
+    return {"message": "Test route is working"}
 
-@app.get("/health")
-async def health_check() -> Dict[str, Any]:
-    """Enhanced health check endpoint with more system information"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0",
-        "environment": "production"
-    }
+@app.on_event("startup")
+async def list_routes():
+    for route in app.routes:
+        print(route.path, route.methods)
 
-@app.post("/api/upload-csv")
-async def upload_csv(file: UploadFile = File(...)) -> JSONResponse:
-    try:
-        logger.info(f"Processing CSV upload: {file.filename}")
-        
-        # Validate file extension
-        if not file.filename.endswith('.csv'):
-            raise HTTPException(
-                status_code=400,
-                detail="Only CSV files are accepted"
-            )
-        
-        # Read file content
-        contents = await file.read()
-        
-        # Try different encodings
-        for encoding in ['utf-8-sig', 'utf-8', 'utf-16']:
-            try:
-                csv_string = contents.decode(encoding)
-                csv_stringio = StringIO(csv_string)
-                data = pd.read_csv(csv_stringio)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Unable to decode CSV file. Please check the file encoding."
-            )
-        
-        # Validate data structure
-        validation_error = validate_csv_data(data)
-        if validation_error:
-            raise HTTPException(
-                status_code=400,
-                detail=validation_error
-            )
-        
-        # Process the data and send emails
-        success_count, failure_count = process_supervisors(data)
-        
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": f"CSV processed: {success_count} emails sent successfully, {failure_count} failed",
-                "filename": file.filename,
-                "timestamp": datetime.now().isoformat(),
-                "processed_rows": len(data),
-                "email_success": success_count,
-                "email_failure": failure_count
-            },
-            status_code=200
-        )
-        
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        error_msg = f"Error processing CSV: {str(e)}"
-        logger.error(f"{error_msg}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        )
-        
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        error_msg = f"Error processing CSV: {str(e)}"
-        logger.error(f"{error_msg}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        )
+class EmailTemplate(BaseModel):
+    subject: str
+    greeting: str
+    intro: str
+    action: str
+    closing: str
 
-@app.post("/api/preview-chart")
-async def preview_chart(file: UploadFile = File(...)) -> JSONResponse:
-    """
-    Generate chart preview from uploaded CSV.
-    Enhanced with proper error handling and response formatting.
-    """
+class ProcessResponse(BaseModel):
+    success: bool
+    message: str
+    filename: str
+    timestamp: str
+    processed_rows: int
+    email_success: Optional[int]
+    email_failure: Optional[int]
+
+class PreviewResponse(BaseModel):
+    success: bool
+    chart: str  # Base64 encoded chart image
+    content: str  # HTML email content
+    metrics: Dict[str, float]
+
+class ErrorDetail(BaseModel):
+    detail: str
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header == API_KEY:
+        return api_key_header
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid API Key"
+    )
+
+def initialise_api(api_key: str):
+    global API_KEY
+    API_KEY = api_key
+
+@router.options("/upload-csv", include_in_schema=False)
+@router.options("/preview-email", include_in_schema=False)
+@router.options("/process-emails", include_in_schema=False)
+async def options_handler(response: Response):
+    response.headers.update({
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-API-Key",
+        "Access-Control-Max-Age": "86400",
+    })
+    return {}
+
+def validate_csv(df: pd.DataFrame) -> bool:
+    try:        
+        if len(df) < 1:
+            raise ValueError("CSV file is empty")
+            
+        # Check if we can find the Course Units section
+        start_idx, end_idx = get_course_unit_2_indices(df)
+        if start_idx is None or end_idx is None:
+            raise ValueError("Could not find Course Units section in CSV")
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"CSV validation failed: {str(e)}")
+        raise ValueError(f"CSV validation failed: {str(e)}")
+
+def get_row_metrics(data: pd.DataFrame, row_index: int) -> Dict[str, float]:
     try:
-        logger.info(f"Generating chart preview for: {file.filename}")
+        row = data.iloc[row_index]
+        metrics = {
+            'total': safe_convert_to_float(row.iloc[10]),
+            'completed': safe_convert_to_float(row.iloc[11]),
+            'past_due': safe_convert_to_float(row.iloc[13]),
+            'pending': safe_convert_to_float(row.iloc[14])
+        }
         
-        if not file.filename.endswith('.csv'):
-            raise HTTPException(
-                status_code=400,
-                detail="Only CSV files are accepted"
-            )
+        # Calculate completion rate
+        metrics['completion_rate'] = (
+            (metrics['completed'] / metrics['total'] * 100) 
+            if metrics['total'] > 0 else 0
+        )
         
-        contents = await file.read()
-        csv_string = contents.decode()
-        csv_stringio = StringIO(csv_string)
+        return metrics
+    except Exception as e:
+        logger.error(f"Error extracting metrics from row {row_index}: {str(e)}")
+        raise ValueError(f"Error extracting metrics: {str(e)}")
+
+@router.post("/upload-csv")
+async def upload_csv(
+    response: Response,
+    file: UploadFile = File(...),
+    # api_key: str = Depends(get_api_key)
+) -> ProcessResponse:
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    try:
+        # Read CSV content
+        content = await file.read()
+        df = pd.read_csv(BytesIO(content))
         
-        data = pd.read_csv(csv_stringio, skiprows=1)
+        # Validate CSV structure
+        if not validate_csv(df):
+            raise ValueError("Invalid CSV structure")
         
-        # Validate data before generating chart
-        validation_error = validate_csv_data(data)
-        if validation_error:
-            raise HTTPException(
-                status_code=400,
-                detail=validation_error
-            )
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        chart = generate_chart(data)
-        
-        logger.info("Chart generation completed successfully")
-        return JSONResponse(
-            content={
-                "success": True,
-                "chart": chart.decode('utf-8') if isinstance(chart, bytes) else chart,
-                "timestamp": datetime.now().isoformat()
-            },
-            status_code=200
+        return ProcessResponse(
+            success=True,
+            message="CSV file uploaded successfully",
+            filename=file.filename,
+            timestamp=timestamp,
+            processed_rows=len(df)-2,
+            email_success=None,
+            email_failure=None
         )
         
     except Exception as e:
-        error_msg = f"Error generating chart: {str(e)}"
-        logger.error(f"{error_msg}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
+        logger.error(f"Error uploading CSV: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/preview-email")
+async def preview_email(
+    response: Response,
+    file: UploadFile = File(...),
+    # template: EmailTemplate = None,
+    row_index: int = 0,
+    # api_key: str = Depends(get_api_key)
+) -> PreviewResponse:
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    try:
+        content = await file.read()
+        df = pd.read_csv(BytesIO(content))
+        
+        if not validate_csv(df):
+            raise ValueError("Invalid CSV structure")
+        
+        metrics = get_row_metrics(df, row_index)
+        chart_bytes = generate_chart(df)
+        chart_base64 = base64.b64encode(chart_bytes).decode()
+        
+        # Generate email content with template
+        # template_dict = template.model_dump() if template else None
+        email_content = create_email_content(metrics, None)
+        
+        return PreviewResponse(
+            success=True,
+            chart=chart_base64,
+            content=email_content,
+            metrics=metrics
         )
+        
+    except Exception as e:
+        logger.error(f"Error generating preview: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/process-emails")
+async def process_emails(
+    response: Response,
+    file: UploadFile = File(...),
+) -> ProcessResponse:
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    try:
+        # Read CSV content
+        content = await file.read()
+        df = pd.read_csv(BytesIO(content))
+        
+        # Validate CSV
+        if not validate_csv(df):
+            raise ValueError("Invalid CSV structure")
+
+        template_dict = {
+            "subject": "Training Tasks Update",
+            "greeting": "Dear Team Leader,",
+            "intro": "This is a reminder about pending training tasks in your team:",
+            "action": "Please ensure your team completes any pending or past due tasks by this Friday.",
+            "closing": "Best regards,\nHR Team"
+        }
+        
+        # Process emails
+        success_count, failure_count = process_supervisors(df, template_dict)
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        return ProcessResponse(
+            success=True,
+            message=f"Processed {success_count + failure_count} emails",
+            filename=file.filename,
+            timestamp=timestamp,
+            processed_rows=len(df)-2,
+            email_success=success_count,
+            email_failure=failure_count
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing emails: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/health")
+async def health_check(response: Response, api_key: str = Depends(get_api_key)):
+    """Health check endpoint."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    return {"status": "healthy"}
+
+# Error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": str(exc.detail)},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 @app.exception_handler(Exception)
-async def generic_exception_handler(request, exc):
-    """Enhanced generic exception handler with more detailed error reporting"""
-    error_msg = f"Unhandled error: {str(exc)}"
-    logger.error(f"{error_msg}\n{traceback.format_exc()}")
+async def general_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {str(exc)}")
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "error": error_msg,
-            "timestamp": datetime.now().isoformat(),
-            "path": str(request.url),
-            "method": request.method
-        }
+        content={"detail": "Internal server error"},
+        headers={"Access-Control-Allow-Origin": "*"}
     )
+    
+app.include_router(router, prefix="/api")

@@ -1,6 +1,6 @@
 'use client'
 
-import CSVUploadPortal from './components/csv-upload-portal'
+import CSVUploadPortal from './components/csv_upload_portal'
 
 export default function Home() {
   return (

@@ -40,7 +40,9 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 ## Developer Information
-- The backend is in port 8000. Call `python -m uvicorn backend.api:app --reload --port 8000` to start the FastAPI server.
+- The backend is in port 8000. Call `python -m uvicorn backend.api:app --host 0.0.0.0 --port 8000` to start the FastAPI server.
 - Recommend to run server in virtual environment: 
     + Create venv (if you have not already): `python -m venv .venv`
     + Fully Activate: `.\.venv\Scripts\activate`
+- Please create `.env` and `.env.local` file locally. Do not push them to GitHub as it secures system's API key.
+- Run `vercel` and `vercel --prod` to deploy the frontend.

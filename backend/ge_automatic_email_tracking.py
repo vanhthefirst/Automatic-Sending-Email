@@ -157,7 +157,7 @@ def create_email_content(
     template: Optional[Dict[str, str]] = None
 ) -> str:
     """
-    Create HTML email content with customizable template.
+    Create HTML email content with a customisable template.
     
     Args:
         data: Dictionary containing metrics (total, completed, pending, past_due, completion_rate)

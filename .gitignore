@@ -29,8 +29,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# env files (can opt-in for commiting if needed)
-.env*
+# venv
+.venv
 
 # vercel
 .vercel
@@ -38,3 +38,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# .gitignore
+.env
+.env.local
+.env.*.local
+*.log
