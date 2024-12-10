@@ -62,7 +62,6 @@ const CSVUpload = () => {
   const [isMounted, setIsMounted] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<UploadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<FileItem[]>([]);
   const [currentStep, setCurrentStep] = useState<
@@ -191,7 +190,6 @@ const CSVUpload = () => {
     try {
       console.log("Making request to process emails");
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PROCESS, formData);
-      setResult(data);
       setCurrentStep("complete");
 
       // Update file status
