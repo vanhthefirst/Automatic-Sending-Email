@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';  
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,7 @@ import { Eye, Send } from 'lucide-react';
 interface EmailPreviewEditorProps {
     emailContent: string;
     onContentChange: (content: string) => void;
-    onProcess: () => Promise<void>;
+    onProcess: (sendTest?: boolean) => Promise<void>;
     previewChart: string;
     metrics: {
       total: number;
@@ -26,6 +27,14 @@ interface EmailPreviewEditorProps {
     };
   }
 
+  interface EmailTemplate {
+    subject: string;
+    greeting: string;
+    intro: string;
+    action: string;
+    closing: string;
+}
+
 const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({ 
   emailContent, 
   onContentChange, 
@@ -34,16 +43,17 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
   metrics 
 }) => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [sendTestEmail, setSendTestEmail] = useState(false);
   
   const defaultEmailTemplate = {
     subject: "Training Tasks Update",
     greeting: "Dear Team Leader,",
     intro: "This is a reminder about pending training tasks in your team:",
-    action: "Please ensure your team completes any pending or past due tasks by this Friday.",
+    action: "Please ensure your team completes any pending or past due tasks by this Friday.\nBelow is the chart to show the current status of your team and others:",
     closing: "Best regards,\nHR Team"
   };
 
-  const [template, setTemplate] = useState(defaultEmailTemplate);
+  const [template, setTemplate] = useState<EmailTemplate>(defaultEmailTemplate);
 
   const MetricsDisplay = () => (
     <div className="bg-gray-50 p-5 rounded-lg my-5">
@@ -54,15 +64,7 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
     </div>
   );
 
-interface EmailTemplate {
-    subject: string;
-    greeting: string;
-    intro: string;
-    action: string;
-    closing: string;
-}
-
-const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
+  const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
     const newTemplate = { ...template, [field]: value };
     setTemplate(newTemplate);
 
@@ -86,7 +88,6 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
                 </div>
                 
                 <p>${newTemplate.action}</p>
-                <p>The chart below shows the current status of your team and others:</p>
                 <img src="cid:task_chart" style="max-width: 100%; height: auto;">
                 
                 <p style="margin-top: 20px;">${newTemplate.closing}</p>
@@ -95,7 +96,43 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
     `;
     
     onContentChange(newContent);
-};
+  };
+
+  const handleSendEmail = async () => {
+    try {
+      // If sendTestEmail is true, send with template data of all zeros
+      const emailData = sendTestEmail ? {
+        ...template,
+        metrics: {
+          total: 0,
+          completed: 0,
+          pending: 0,
+          past_due: 0,
+          completion_rate: 0
+        },
+        sendTestCopy: true
+      } : {
+        ...template,
+        metrics,
+        sendTestCopy: false
+      };
+
+      await onProcess(sendTestEmail);
+      
+      // Additional API call for test email if checkbox is checked
+      if (sendTestEmail) {
+        await fetch('/api/send-test-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(emailData),
+        });
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -160,7 +197,6 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
               <p>{template.action}</p>
               {previewChart && (
                 <div className="my-4">
-                  <p>The chart below shows the current status of your team and others:</p>
                   <img 
                     src={`data:image/png;base64,${previewChart}`} 
                     alt="Task Status Chart"
@@ -174,22 +210,38 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
         </TabsContent>
       </Tabs>
 
-      <div className="flex justify-end space-x-4">
-        <Button
-          variant="outline"
-          onClick={() => setIsPreviewOpen(true)}
-          className="w-32"
-        >
-          <Eye className="w-4 h-4 mr-2" />
-          Preview
-        </Button>
-        <Button
-          onClick={onProcess}
-          className="w-32"
-        >
-          <Send className="w-4 h-4 mr-2" />
-          Send
-        </Button>
+      <div className="flex flex-col space-y-4">
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="send-test"
+            checked={sendTestEmail}
+            onCheckedChange={(checked) => setSendTestEmail(checked as boolean)}
+          />
+          <label
+            htmlFor="send-test"
+            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+          >
+            Send me a copy with template data
+          </label>
+        </div>
+
+        <div className="flex justify-end space-x-4">
+          <Button
+            variant="outline"
+            onClick={() => setIsPreviewOpen(true)}
+            className="w-32"
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            Preview
+          </Button>
+          <Button
+            onClick={handleSendEmail}
+            className="w-32"
+          >
+            <Send className="w-4 h-4 mr-2" />
+            Send
+          </Button>
+        </div>
       </div>
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
@@ -207,7 +259,6 @@ const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
                 <p>{template.action}</p>
                 {previewChart && (
                   <div className="my-4">
-                    <p>The chart below shows the current status of your team and others:</p>
                     <img 
                       src={`data:image/png;base64,${previewChart}`} 
                       alt="Task Status Chart"

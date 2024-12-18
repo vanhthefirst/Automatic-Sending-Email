@@ -27,7 +27,7 @@ class EmailTemplate:
         "subject": "Training Tasks Update",
         "greeting": "Dear Team Leader,",
         "intro": "This is a reminder about pending training tasks in your team:",
-        "action": "Please ensure your team completes any pending or past due tasks by this Friday.",
+        "action": "Please ensure your team completes any pending or past due tasks by this Friday.\nBelow is the chart to show the current status of your team and others:",
         "closing": "Best regards,\nHR Team"
     }
 
@@ -240,11 +240,34 @@ def send_email(
     except Exception as e:
         logger.error(f"Failed to send email to {recipient}: {str(e)}")
         return False
+    
+
+def send_test_email(
+    template: Dict[str, str],
+    metrics: Dict[str, float],
+    chart: bytes,
+    recipient: Optional[str] = None
+) -> bool:
+    """Send test email with template data."""
+    try:
+        # Use default recipient if none provided
+        test_recipient = recipient or os.getenv('ADMIN_EMAIL', '223144086@geaerospace.com')
+        
+        # Generate content with zero metrics
+        content = create_email_content(metrics, template)
+        subject = f"[TEST] {template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject'])}"
+        
+        # Send email using existing function
+        return send_email(test_recipient, subject, content, chart)
+    except Exception as e:
+        logger.error(f"Error sending test email: {str(e)}")
+        return False
 
 
 def process_supervisors(
     data: pd.DataFrame,
-    email_template: Optional[Dict[str, str]] = None
+    email_template: Optional[Dict[str, str]] = None,
+    send_test: bool = False
 ) -> Tuple[int, int]:
     """
     Process supervisor data and send emails.
@@ -266,6 +289,22 @@ def process_supervisors(
         # Generate chart once for all emails
         chart = generate_chart(data)
         
+        # Send test email if requested
+        if send_test:
+            test_metrics = {
+                'total': 0,
+                'completed': 0,
+                'past_due': 0,
+                'pending': 0,
+                'completion_rate': 0
+            }
+            if send_test_email(email_template, test_metrics, chart):
+                success_count += 1
+                logger.info("Test email sent successfully")
+            else:
+                failure_count += 1
+                logger.error("Failed to send test email")
+
         # Process each supervisor
         for idx in range(start_idx, end_idx-3):
             row = data.iloc[idx]
@@ -288,7 +327,7 @@ def process_supervisors(
                 
                 # Check if email needed
                 if metrics['pending'] > 0 or metrics['past_due'] > 0:
-                    email = "223144086@geaerospace.com" #extract_sso_id(supervisor)
+                    email = extract_sso_id(supervisor) # "223144086@geaerospace.com"
                     if email:
                         # Generate email content with template
                         content = create_email_content(metrics, email_template)

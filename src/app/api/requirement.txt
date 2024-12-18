@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-python-multipart
-pandas
-matplotlib
-schedule
-python-dateutil

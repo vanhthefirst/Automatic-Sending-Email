@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, FileText, Loader2, Eye, Send } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import EmailPreviewEditor from "./email_preview";
+import { sendTestEmail } from "../api/UploadService";
 
 interface UploadResponse {
   success: boolean;
@@ -27,6 +28,7 @@ interface PreviewResponse {
     past_due: number;
     completion_rate: number;
   };
+  sendTestEmail?: boolean;
 }
 
 interface ErrorResponse {
@@ -73,7 +75,7 @@ const CSVUpload = () => {
     greeting: "Dear Team Leader,",
     intro: "This is a reminder about pending training tasks in your team:",
     action:
-      "Please ensure your team completes any pending or past due tasks by this Friday.",
+      "Please ensure your team completes any pending or past due tasks by this Friday.\n Below is the chart to show the current status of your team and others:",
     closing: "Best regards,\nHR Team",
   });
 
@@ -121,11 +123,14 @@ const CSVUpload = () => {
         body: formData,
       });
 
-      console.log("Response status:", response.status);
-
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Request failed");
+        console.error("API Error Details:", {
+          status: response.status,
+          error: errorData,
+          endpoint: endpoint
+        });
+        throw new Error(errorData.detail || errorData.message || `Request failed with status ${response.status}`);
       }
 
       return await response.json();
@@ -146,7 +151,15 @@ const CSVUpload = () => {
 
     const formData = new FormData();
     formData.append("file", file);
-    // formData.append("template", JSON.stringify(template));
+    formData.append("row_index", "0");
+    formData.append("template", JSON.stringify({
+      subject: template.subject,
+      greeting: template.greeting,
+      intro: template.intro,
+      action: template.action,
+      closing: template.closing,
+      sendTestCopy: false
+    }));
 
     try {
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PREVIEW, formData);
@@ -176,7 +189,14 @@ const CSVUpload = () => {
     setLoading(true);
     const formData = new FormData();
     formData.append("file", file);
-    // formData.append("template", JSON.stringify(template));
+    formData.append("template", JSON.stringify({
+      subject: template.subject,
+      greeting: template.greeting,
+      intro: template.intro,
+      action: template.action,
+      closing: template.closing,
+      sendTestCopy: previewData?.sendTestEmail || false
+    }));
 
     // Add file to recent uploads
     const newFileItem: FileItem = {
@@ -345,7 +365,7 @@ const CSVUpload = () => {
                 ) : (
                   <>
                     <Eye className="mr-2 h-4 w-4" />
-                    Preview Emails
+                    Preview Email
                   </>
                 )}
               </Button>

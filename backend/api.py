@@ -1,20 +1,22 @@
-from fastapi import FastAPI, APIRouter, UploadFile, Response, File, HTTPException, Security, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Response, UploadFile, File, Security, Depends, Form
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Optional
-import pandas as pd
 from io import BytesIO
+import pandas as pd
 import base64
 import logging
+import json
 from datetime import datetime
 from .ge_automatic_email_tracking import (
     process_supervisors,
     generate_chart,
     get_course_unit_2_indices,
     safe_convert_to_float,
-    create_email_content
+    create_email_content,
+    send_test_email  # Add this to ge_automatic_email_tracking.py
 )
 
 # Configure logging
@@ -52,6 +54,14 @@ class EmailTemplate(BaseModel):
     intro: str
     action: str
     closing: str
+    sendTestCopy: Optional[bool] = False
+
+class PreviewResponse(BaseModel):
+    success: bool
+    chart: str  # Base64 encoded chart image
+    content: str  # HTML email content
+    metrics: Dict[str, float]
+    sendTestEmail: Optional[bool] = False
 
 class ProcessResponse(BaseModel):
     success: bool
@@ -61,12 +71,6 @@ class ProcessResponse(BaseModel):
     processed_rows: int
     email_success: Optional[int]
     email_failure: Optional[int]
-
-class PreviewResponse(BaseModel):
-    success: bool
-    chart: str  # Base64 encoded chart image
-    content: str  # HTML email content
-    metrics: Dict[str, float]
 
 class ErrorDetail(BaseModel):
     detail: str
@@ -89,6 +93,7 @@ def initialise_api(api_key: str):
 @router.options("/upload-csv", include_in_schema=False)
 @router.options("/preview-email", include_in_schema=False)
 @router.options("/process-emails", include_in_schema=False)
+@router.options("/send-test-email", include_in_schema=False)
 async def options_handler(response: Response):
     response.headers.update({
         "Access-Control-Allow-Origin": "*",
@@ -141,7 +146,6 @@ async def upload_csv(
     file: UploadFile = File(...),
     # api_key: str = Depends(get_api_key)
 ) -> ProcessResponse:
-    response.headers["Access-Control-Allow-Origin"] = "*"
     try:
         # Read CSV content
         content = await file.read()
@@ -171,12 +175,10 @@ async def upload_csv(
 async def preview_email(
     response: Response,
     file: UploadFile = File(...),
-    # template: EmailTemplate = None,
-    row_index: int = 0,
-    # api_key: str = Depends(get_api_key)
+    row_index: str = Form('0'),
 ) -> PreviewResponse:
-    response.headers["Access-Control-Allow-Origin"] = "*"
     try:
+        row_index = int(row_index)
         content = await file.read()
         df = pd.read_csv(BytesIO(content))
         
@@ -195,7 +197,8 @@ async def preview_email(
             success=True,
             chart=chart_base64,
             content=email_content,
-            metrics=metrics
+            metrics=metrics,
+            sendTestEmail=False # Default value
         )
         
     except Exception as e:
@@ -206,27 +209,56 @@ async def preview_email(
 async def process_emails(
     response: Response,
     file: UploadFile = File(...),
+    template: str = Form(None),
 ) -> ProcessResponse:
-    response.headers["Access-Control-Allow-Origin"] = "*"
     try:
         # Read CSV content
         content = await file.read()
         df = pd.read_csv(BytesIO(content))
-        
+
+        template_data = json.loads(template) if template else {}
+        send_test_copy = template_data.get('sendTestCopy', False)
+
+        template_dict = {
+            "subject": template_data.get('subject', "Training Tasks Update"),
+            "greeting": template_data.get('greeting', "Dear Team Leader,"),
+            "intro": template_data.get('intro', "This is a reminder about pending training tasks in your team:"),
+            "action": template_data.get('action', "Please ensure your team completes any pending or past due tasks by this Friday.\nBelow is the chart to show the current status of your team and others:"),
+            "closing": template_data.get('closing', "Best regards,\nHR Team")
+        }
+
         # Validate CSV
         if not validate_csv(df):
             raise ValueError("Invalid CSV structure")
-
-        template_dict = {
-            "subject": "Training Tasks Update",
-            "greeting": "Dear Team Leader,",
-            "intro": "This is a reminder about pending training tasks in your team:",
-            "action": "Please ensure your team completes any pending or past due tasks by this Friday.",
-            "closing": "Best regards,\nHR Team"
-        }
         
         # Process emails
-        success_count, failure_count = process_supervisors(df, template_dict)
+        success_count, failure_count = process_supervisors(
+            df, 
+            template_dict, 
+            send_test=send_test_copy
+        )
+
+        # Only attempt test email if specifically requested
+        if send_test_copy:
+            try:
+                test_metrics = {
+                    'total': 0,
+                    'completed': 0,
+                    'past_due': 0,
+                    'pending': 0,
+                    'completion_rate': 0
+                }
+                
+                chart_bytes = generate_chart(df)
+                test_success = await send_test_email(template_dict, test_metrics, chart_bytes)
+                if test_success:
+                    success_count += 1
+                else:
+                    failure_count += 1
+                logger.info(f"Test email sent successfully: {test_success}")
+            except Exception as e:
+                logger.error(f"Error sending test email: {str(e)}")
+                failure_count += 1
         
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -247,7 +279,6 @@ async def process_emails(
 @router.get("/health")
 async def health_check(response: Response, api_key: str = Depends(get_api_key)):
     """Health check endpoint."""
-    response.headers["Access-Control-Allow-Origin"] = "*"
     return {"status": "healthy"}
 
 # Error handlers
