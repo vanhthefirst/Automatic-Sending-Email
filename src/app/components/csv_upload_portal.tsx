@@ -50,7 +50,6 @@ interface EmailTemplate {
   closing: string;
 }
 
-// API endpoint configuration
 const API_CONFIG = {
   BASE_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
   API_KEY: process.env.NEXT_PUBLIC_API_KEY as string,
@@ -66,9 +65,7 @@ const CSVUpload = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<FileItem[]>([]);
-  const [currentStep, setCurrentStep] = useState<
-    "upload" | "preview" | "complete"
-  >("upload");
+  const [currentStep, setCurrentStep] = useState<"upload" | "preview" | "complete">("upload");
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
   const [template, setTemplate] = useState<EmailTemplate>({
     subject: "Training Tasks Update",
@@ -90,10 +87,7 @@ const CSVUpload = () => {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
-      if (
-        selectedFile.type === "text/csv" ||
-        selectedFile.name.endsWith(".csv")
-      ) {
+      if (selectedFile.type === "text/csv" || selectedFile.name.endsWith(".csv")) {
         setFile(selectedFile);
         setError(null);
         setCurrentStep("upload");
@@ -152,14 +146,6 @@ const CSVUpload = () => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("row_index", "0");
-    formData.append("template", JSON.stringify({
-      subject: template.subject,
-      greeting: template.greeting,
-      intro: template.intro,
-      action: template.action,
-      closing: template.closing,
-      sendTestCopy: false
-    }));
 
     try {
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PREVIEW, formData);
@@ -170,8 +156,7 @@ const CSVUpload = () => {
         description: "You can now review and edit the email content",
       });
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to generate preview";
+      const errorMessage = err instanceof Error ? err.message : "Failed to generate preview";
       setError(errorMessage);
       toast({
         variant: "destructive",
@@ -183,71 +168,45 @@ const CSVUpload = () => {
     }
   };
 
-  const handleProcess = async () => {
+  const handleProcess = async (emailData?: any) => {
     if (!file) return;
 
     setLoading(true);
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("template", JSON.stringify({
-      subject: template.subject,
-      greeting: template.greeting,
-      intro: template.intro,
-      action: template.action,
-      closing: template.closing,
-      sendTestCopy: previewData?.sendTestEmail || false
-    }));
-
-    // Add file to recent uploads
-    const newFileItem: FileItem = {
-      name: file.name,
-      size: file.size,
-      status: "processing",
-    };
-
-    setRecentFiles((prev) => [newFileItem, ...prev]);
+    formData.append("template", JSON.stringify(emailData || template));
 
     try {
-      console.log("Making request to process emails");
+      console.log("Making request to process emails:", emailData);
       const data = await makeAPIRequest(API_CONFIG.ENDPOINTS.PROCESS, formData);
-      setCurrentStep("complete");
-
-      // Update file status
-      setRecentFiles((prev) =>
-        prev.map((f) =>
-          f.name === file.name
-            ? {
-                ...f,
-                status: "complete",
-                message: `Processed ${data.processed_rows} rows. ${data.email_success} emails sent successfully, ${data.email_failure} failed.`,
-              }
-            : f
-        )
-      );
+      
+      // Handle response even if some emails failed
+      const message = `Processed ${data.processed_rows} rows. ${data.email_success || 0} sent successfully, ${data.email_failure || 0} failed.`;
+      
+      setRecentFiles(prev => [{
+        name: file.name,
+        size: file.size,
+        status: data.email_success > 0 ? "complete" : "error",
+        message
+      }, ...prev]);
 
       toast({
-        title: "Processing Complete",
-        description: `Successfully sent ${data.email_success} emails`,
+        title: data.email_success > 0 ? "Processing Complete" : "Partial Success",
+        description: message,
+        variant: data.email_failure > 0 ? "destructive" : "default"
       });
 
-      // Clear file input
-      setFile(null);
-      if (document.querySelector<HTMLInputElement>('input[type="file"]')) {
-        document.querySelector<HTMLInputElement>('input[type="file"]')!.value =
-          "";
-      }
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error occurred";
-
-      // Update file status to error
-      setRecentFiles((prev) =>
-        prev.map((f) =>
-          f.name === file.name
-            ? { ...f, status: "error", message: errorMessage }
-            : f
-        )
-      );
+      setCurrentStep("complete");
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      
+      setRecentFiles(prev => [{
+        name: file.name,
+        size: file.size,
+        status: "error",
+        message: errorMessage
+      }, ...prev]);
 
       setError(errorMessage);
       toast({
@@ -257,6 +216,10 @@ const CSVUpload = () => {
       });
     } finally {
       setLoading(false);
+      setFile(null);
+      if (document.querySelector<HTMLInputElement>('input[type="file"]')) {
+        document.querySelector<HTMLInputElement>('input[type="file"]')!.value = "";
+      }
     }
   };
 
@@ -386,10 +349,10 @@ const CSVUpload = () => {
                 </Button>
               </div>
               <EmailPreviewEditor
-                emailContent={template.intro}
-                onContentChange={(content: string) =>
-                  setTemplate((prev) => ({ ...prev, intro: content }))
-                }
+                emailContent={previewData.content}
+                onContentChange={(content: string) => {
+                setPreviewData(prev => prev ? {...prev, content} : null);
+              }}
                 onProcess={handleProcess}
                 previewChart={previewData.chart}
                 metrics={previewData.metrics}
@@ -404,7 +367,6 @@ const CSVUpload = () => {
           </Alert>
         )}
 
-        {/* Recent Uploads section */}
         {recentFiles.length > 0 && (
           <div className="mt-8">
             <h2 className="text-xl font-semibold mb-4">Recent Uploads</h2>
@@ -451,6 +413,6 @@ const CSVUpload = () => {
       </div>
     </div>
   );
-};
+  };
 
 export default CSVUpload;

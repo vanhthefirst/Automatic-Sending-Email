@@ -217,7 +217,9 @@ async def process_emails(
         df = pd.read_csv(BytesIO(content))
 
         template_data = json.loads(template) if template else {}
+        print("Received template data:", template_data)
         send_test_copy = template_data.get('sendTestCopy', False)
+        logger.info(f"Received sendTestCopy flag: {send_test_copy}")
 
         template_dict = {
             "subject": template_data.get('subject', "Training Tasks Update"),
@@ -250,7 +252,7 @@ async def process_emails(
                 }
                 
                 chart_bytes = generate_chart(df)
-                test_success = await send_test_email(template_dict, test_metrics, chart_bytes)
+                test_success = send_test_email(template_dict, test_metrics, chart_bytes)
                 if test_success:
                     success_count += 1
                 else:

@@ -152,6 +152,11 @@ def generate_chart(data: pd.DataFrame) -> bytes:
         raise
 
 
+def format_text_with_line_breaks(text: str) -> str:
+    """Convert new lines to HTML paragraphs."""
+    return ''.join(f'<p>{line}</p>' for line in text.split('\n') if line.strip())
+
+
 def create_email_content(
     data: Dict[str, float],
     template: Optional[Dict[str, str]] = None
@@ -179,19 +184,17 @@ def create_email_content(
         return f"""
         <html>
         <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">{email_template['subject']}</h2>
-            <p>{email_template['greeting']}</p>
-            <p>{email_template['intro']}</p>
+            <h1 style="color: #2c3e50; font-size: 28px; font-weight: bold; margin-bottom: 24px;">{email_template['subject']}</h1>
+            {format_text_with_line_breaks(email_template['greeting'])}
+            {format_text_with_line_breaks(email_template['intro'])}
             
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
                 {metrics_html}
             </div>
             
-            <p>{email_template['action']}</p>
-            <p>The chart below shows the current status of your team and others:</p>
+            {format_text_with_line_breaks(email_template['action'])}
             <img src="cid:task_chart" style="max-width: 100%; height: auto;">
-            
-            <p style="margin-top: 20px;">{email_template['closing']}</p>
+            {format_text_with_line_breaks(email_template['closing'])}
         </body>
         </html>
         """
@@ -252,13 +255,19 @@ def send_test_email(
     try:
         # Use default recipient if none provided
         test_recipient = recipient or os.getenv('ADMIN_EMAIL', '223144086@geaerospace.com')
+        logger.info(f"Sending test email to: {test_recipient}")
         
         # Generate content with zero metrics
         content = create_email_content(metrics, template)
         subject = f"[TEST] {template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject'])}"
         
         # Send email using existing function
-        return send_email(test_recipient, subject, content, chart)
+        success = send_email(test_recipient, subject, content, chart)
+        if success:
+            logger.info(f"Test email successfully sent to {test_recipient}")
+        else:
+            logger.error(f"Failed to send test email to {test_recipient}")
+        return success
     except Exception as e:
         logger.error(f"Error sending test email: {str(e)}")
         return False
@@ -289,22 +298,6 @@ def process_supervisors(
         # Generate chart once for all emails
         chart = generate_chart(data)
         
-        # Send test email if requested
-        if send_test:
-            test_metrics = {
-                'total': 0,
-                'completed': 0,
-                'past_due': 0,
-                'pending': 0,
-                'completion_rate': 0
-            }
-            if send_test_email(email_template, test_metrics, chart):
-                success_count += 1
-                logger.info("Test email sent successfully")
-            else:
-                failure_count += 1
-                logger.error("Failed to send test email")
-
         # Process each supervisor
         for idx in range(start_idx, end_idx-3):
             row = data.iloc[idx]
@@ -329,7 +322,6 @@ def process_supervisors(
                 if metrics['pending'] > 0 or metrics['past_due'] > 0:
                     email = extract_sso_id(supervisor) # "223144086@geaerospace.com"
                     if email:
-                        # Generate email content with template
                         content = create_email_content(metrics, email_template)
                         subject = email_template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject']) if email_template else EmailTemplate.DEFAULT_TEMPLATE['subject']
                         

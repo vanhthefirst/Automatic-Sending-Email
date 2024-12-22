@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -16,7 +16,7 @@ import { Eye, Send } from 'lucide-react';
 interface EmailPreviewEditorProps {
     emailContent: string;
     onContentChange: (content: string) => void;
-    onProcess: (sendTest?: boolean) => Promise<void>;
+    onProcess: (emailData: any) => Promise<void>;
     previewChart: string;
     metrics: {
       total: number;
@@ -44,91 +44,59 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
 }) => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [sendTestEmail, setSendTestEmail] = useState(false);
-  
-  const defaultEmailTemplate = {
+  const [previewContent, setPreviewContent] = useState(emailContent);
+
+  const [template, setTemplate] = useState<EmailTemplate>({
     subject: "Training Tasks Update",
     greeting: "Dear Team Leader,",
     intro: "This is a reminder about pending training tasks in your team:",
     action: "Please ensure your team completes any pending or past due tasks by this Friday.\nBelow is the chart to show the current status of your team and others:",
     closing: "Best regards,\nHR Team"
-  };
+  });
 
-  const [template, setTemplate] = useState<EmailTemplate>(defaultEmailTemplate);
+  useEffect(() => {
+    const formatText = (text: string) => {
+      return text.split('\n').map(line => `<p>${line}</p>`).join('');
+    };
 
-  const MetricsDisplay = () => (
-    <div className="bg-gray-50 p-5 rounded-lg my-5">
-      <p><strong>Total Tasks:</strong> {metrics.total}</p>
-      <p><strong>Completed:</strong> {metrics.completed} ({metrics.completion_rate.toFixed(2)}%)</p>
-      <p><strong>Pending:</strong> {metrics.pending}</p>
-      <p><strong>Past Due:</strong> {metrics.past_due}</p>
-    </div>
-  );
+    const updatedContent = `
+      <html>
+      <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <h1 style="color: #2c3e50; font-size: 28px; font-weight: bold; margin-bottom: 24px;">${template.subject}</h1>
+        ${formatText(template.greeting)}
+        ${formatText(template.intro)}
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <p><strong>Total Tasks:</strong> ${metrics.total}</p>
+          <p><strong>Completed:</strong> ${metrics.completed} (${metrics.completion_rate.toFixed(2)}%)</p>
+          <p><strong>Pending:</strong> ${metrics.pending}</p>
+          <p><strong>Past Due:</strong> ${metrics.past_due}</p>
+        </div>
+        
+        ${formatText(template.action)}
+        ${previewChart ? `<img src="data:image/png;base64,${previewChart}" style="max-width: 100%; height: auto;">` : ''}
+        
+        ${formatText(template.closing)}
+      </body>
+      </html>
+    `;
+    setPreviewContent(updatedContent);
+    onContentChange(updatedContent);
+  }, [template, metrics, previewChart]);
 
   const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
-    const newTemplate = { ...template, [field]: value };
-    setTemplate(newTemplate);
-
-    const metricsHtml = `
-      <p><strong>Total Tasks:</strong> ${metrics.total}</p>
-      <p><strong>Completed:</strong> ${metrics.completed} (${metrics.completion_rate.toFixed(2)}%)</p>
-      <p><strong>Pending:</strong> ${metrics.pending}</p>
-      <p><strong>Past Due:</strong> ${metrics.past_due}</p>
-    `;
-    
-    // Generate new HTML content
-    const newContent = `
-        <html>
-        <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-                <h2 style="color: #2c3e50;">${newTemplate.subject}</h2>
-                <p>${newTemplate.greeting}</p>
-                <p>${newTemplate.intro}</p>
-                
-                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                        ${metricsHtml}
-                </div>
-                
-                <p>${newTemplate.action}</p>
-                <img src="cid:task_chart" style="max-width: 100%; height: auto;">
-                
-                <p style="margin-top: 20px;">${newTemplate.closing}</p>
-        </body>
-        </html>
-    `;
-    
-    onContentChange(newContent);
+    setTemplate(prev => ({ ...prev, [field]: value }));
   };
 
   const handleSendEmail = async () => {
     try {
-      // If sendTestEmail is true, send with template data of all zeros
-      const emailData = sendTestEmail ? {
+      const emailData = {
         ...template,
-        metrics: {
-          total: 0,
-          completed: 0,
-          pending: 0,
-          past_due: 0,
-          completion_rate: 0
-        },
-        sendTestCopy: true
-      } : {
-        ...template,
-        metrics,
-        sendTestCopy: false
+        sendTestCopy: sendTestEmail
       };
 
-      await onProcess(sendTestEmail);
-      
-      // Additional API call for test email if checkbox is checked
-      if (sendTestEmail) {
-        await fetch('/api/send-test-email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(emailData),
-        });
-      }
+      console.log("Sending email with test flag:", sendTestEmail);
+      await onProcess(emailData); // Pass the complete emailData instead of just the flag
     } catch (error) {
       console.error('Error sending email:', error);
     }
@@ -189,23 +157,7 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
         
         <TabsContent value="preview">
           <Card className="p-6">
-            <h2 className="text-2xl font-semibold text-[#2c3e50] mb-4">{template.subject}</h2>
-            <div className="space-y-4">
-              <p>{template.greeting}</p>
-              <p>{template.intro}</p>
-              <MetricsDisplay />
-              <p>{template.action}</p>
-              {previewChart && (
-                <div className="my-4">
-                  <img 
-                    src={`data:image/png;base64,${previewChart}`} 
-                    alt="Task Status Chart"
-                    className="max-w-full"
-                  />
-                </div>
-              )}
-              <p className="mt-5 whitespace-pre-line">{template.closing}</p>
-            </div>
+            <div dangerouslySetInnerHTML={{ __html: emailContent }} />
           </Card>
         </TabsContent>
       </Tabs>
@@ -250,25 +202,7 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
             <DialogTitle>Email Preview</DialogTitle>
           </DialogHeader>
           <div className="mt-4">
-            <Card className="p-6">
-              <h2 className="text-2xl font-semibold mb-4">{template.subject}</h2>
-              <div className="space-y-4">
-                <p>{template.greeting}</p>
-                <p>{template.intro}</p>
-                <MetricsDisplay />
-                <p>{template.action}</p>
-                {previewChart && (
-                  <div className="my-4">
-                    <img 
-                      src={`data:image/png;base64,${previewChart}`} 
-                      alt="Task Status Chart"
-                      className="max-w-full"
-                    />
-                  </div>
-                )}
-                <p className="mt-5 whitespace-pre-line">{template.closing}</p>
-              </div>
-            </Card>
+            <div dangerouslySetInnerHTML={{ __html: emailContent }} />
           </div>
         </DialogContent>
       </Dialog>
