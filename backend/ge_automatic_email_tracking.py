@@ -2,16 +2,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from io import BytesIO
-from typing import Optional, Tuple, Dict, Union
+from typing import Optional, Tuple, Dict, List
+from collections import defaultdict
 import pandas as pd
 import matplotlib.pyplot as plt
 import smtplib
-import schedule
-import time
 import os
-import socket
 import logging
-from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -78,68 +75,78 @@ def extract_sso_id(supervisor: str) -> Optional[str]:
 
 
 def generate_chart(data: pd.DataFrame) -> bytes:
-    """Generate a visualisation chart for the email."""
+    """
+    Generate a visualisation chart for the email.
+
+    Optimising chart generation using data structures:
+    - dict: O(1) lookup for supervisor data
+    - minimise DataFrame operations to reduce processing time
+    - process data in single pass
+    """
     try:
         # Get Course Units (2) section
         start_idx, end_idx = get_course_unit_2_indices(data)
         if start_idx is None or end_idx is None:
             raise ValueError("Could not find Course Units (2) section")
             
-        # Prepare data for visualisation
-        chart_data = []
+        # Prepare data for visualisation in a single pass
+        chart_data = {}
+        max_total = 0
+
         for idx in range(start_idx, end_idx-3):
             row = data.iloc[idx]
             supervisor = str(row.iloc[0])
+
             if pd.isna(supervisor) or supervisor.strip() == '':
                 continue
-                
-            chart_data.append({
-                'Supervisor': supervisor,
+
+            metrics = {
                 'Completed': safe_convert_to_float(row.iloc[11]),
                 'Pending': safe_convert_to_float(row.iloc[14]),
                 'Past Due': safe_convert_to_float(row.iloc[13])
-            })
-        
-        df_chart = pd.DataFrame(chart_data)
-        df_chart = df_chart.sort_values('Supervisor', ascending=False)
-        
-        # Create the chart
-        fig, ax = plt.subplots(figsize=(12, max(6, len(df_chart) * 0.4)))
+            }
 
+            total = sum(metrics.values())
+            max_total = max(max_total, total)
+            chart_data[supervisor] = metrics
+
+        sorted_supervisors = sorted(chart_data.keys(), reverse=True)
+        
+        # Create plot with pre-calculated dimensions
+        num_supervisors = len(sorted_supervisors)
+        fig_height = max(6, num_supervisors * 0.4)
+        fig, ax = plt.subplots(figsize=(12, fig_height))
+        
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         
-        # Plot stacked bars
-        left_values = pd.Series(0, index=df_chart.index)
-        colors = ['#2ecc71', '#f1c40f', '#e74c3c']  # Green, Yellow, Red
-        labels = ['Completed', 'Pending', 'Past Due']
+        y_positions = range(num_supervisors)
+        left_values = [0] * num_supervisors
+        colors = ['#2ecc71', '#f1c40f', '#e74c3c']
+        categories = ['Completed', 'Pending', 'Past Due']
         
-        bars = []
-        for column, color, label in zip(['Completed', 'Pending', 'Past Due'], colors, labels):
-            bar = ax.barh(range(len(df_chart)), df_chart[column], left=left_values, 
-                         color=color, label=label)
-            bars.append(bar)
-            left_values += df_chart[column]
+        # Plot bars efficiently
+        for category, color in zip(categories, colors):
+            values = [chart_data[sup][category] for sup in sorted_supervisors]
+            ax.barh(y_positions, values, left=left_values, color=color, label=category)
+            left_values = [l + v for l, v in zip(left_values, values)]
         
-        ax.set_yticks(range(len(df_chart)))
-        ax.set_yticklabels(df_chart['Supervisor'])
-
-        total_width = df_chart[['Completed', 'Pending', 'Past Due']].sum(axis=1).max()
-
-        # Customise chart
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(sorted_supervisors)
         ax.set_title('Task Status by Supervisor', pad=50)
         ax.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncol=3)
         ax.grid(True, axis='x', linestyle='--', alpha=0.7)
-        for idx, row in df_chart.iterrows():
-            y_pos = list(df_chart.index).index(idx) # Get the correct y position after sorting
-            text = f"{int(row['Completed'])} | {int(row['Pending'])} | {int(row['Past Due'])}"
-            ax.text(total_width * 1.02, y_pos, text, va='center', ha='left', fontsize=9)
         
-        plt.xlim(0, total_width * 1.2)
-        ax.axvline(x=total_width, color='gray', linestyle='--', linewidth=0.8) # Vertical line to separate chart from labels
+        # Add value labels in single pass
+        for idx, supervisor in enumerate(sorted_supervisors):
+            metrics = chart_data[supervisor]
+            text = f"{int(metrics['Completed'])} | {int(metrics['Pending'])} | {int(metrics['Past Due'])}"
+            ax.text(max_total * 1.02, idx, text, va='center', ha='left', fontsize=9)
+        
+        plt.xlim(0, max_total * 1.2)
+        ax.axvline(x=max_total, color='gray', linestyle='--', linewidth=0.8)
         plt.tight_layout()
         
-        # Save to bytes
         img_buffer = BytesIO()
         plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=300)
         img_buffer.seek(0)
@@ -281,9 +288,10 @@ def process_supervisors(
     """
     Process supervisor data and send emails.
     
-    Args:
-        data: DataFrame containing supervisor data
-        email_template: Optional dictionary containing email template customization
+    Optimising performance by using data structures:
+    - defaultdict: grouping pending tasks by supervisor
+    - pre-calculating metrics and storing in a cache
+    - batch process similar operations to reduce duplicate work
     """
     success_count = 0
     failure_count = 0
@@ -295,7 +303,10 @@ def process_supervisors(
             logger.error("Could not find Course Units (2) section")
             return 0, 0
         
-        # Generate chart once for all emails
+        metrics_cache = {}
+        supervisor_emails = {}
+        pending_tasks = defaultdict(list)
+
         chart = generate_chart(data)
         
         # Process each supervisor
@@ -306,40 +317,47 @@ def process_supervisors(
             if pd.isna(supervisor) or supervisor.strip() == '':
                 continue
             
+            metrics = {
+                'total': safe_convert_to_float(row.iloc[10]),
+                'completed': safe_convert_to_float(row.iloc[11]),
+                'past_due': safe_convert_to_float(row.iloc[13]),
+                'pending': safe_convert_to_float(row.iloc[14])
+            }
+            
+            # Calculate completion rate and store in cache
+            metrics['completion_rate'] = (metrics['completed'] / metrics['total'] * 100) if metrics['total'] > 0 else 0
+            metrics_cache[supervisor] = metrics
+
+            email = extract_sso_id(supervisor) # "223144086@geaerospace.com"
+            if email:
+                supervisor_emails[supervisor] = email
+            
+            # Check if email needed
+            if metrics['pending'] > 0 or metrics['past_due'] > 0:
+                pending_tasks[supervisor].append(idx)
+
+        for supervisor in pending_tasks:
+            if supervisor not in supervisor_emails:
+                failure_count += 1
+                continue
+
             try:
-                # Extract metrics
-                metrics = {
-                    'total': safe_convert_to_float(row.iloc[10]),
-                    'completed': safe_convert_to_float(row.iloc[11]),
-                    'past_due': safe_convert_to_float(row.iloc[13]),
-                    'pending': safe_convert_to_float(row.iloc[14])
-                }
+                email = supervisor_emails[supervisor]
+                metrics = metrics_cache[supervisor]
                 
-                # Calculate completion rate
-                metrics['completion_rate'] = (metrics['completed'] / metrics['total'] * 100) if metrics['total'] > 0 else 0
+                content = create_email_content(metrics, email_template)
+                subject = email_template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject']) if email_template else EmailTemplate.DEFAULT_TEMPLATE['subject']
                 
-                # Check if email needed
-                if metrics['pending'] > 0 or metrics['past_due'] > 0:
-                    email = extract_sso_id(supervisor) # "223144086@geaerospace.com"
-                    if email:
-                        content = create_email_content(metrics, email_template)
-                        subject = email_template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject']) if email_template else EmailTemplate.DEFAULT_TEMPLATE['subject']
-                        
-                        # Send email
-                        if send_email(email, subject, content, chart):
-                            success_count += 1
-                            logger.info(f"Successfully processed supervisor: {supervisor}")
-                        else:
-                            failure_count += 1
-                            logger.error(f"Failed to send email to supervisor: {supervisor}")
-                    else:
-                        logger.warning(f"No valid email for supervisor: {supervisor}")
-                        failure_count += 1
+                if send_email(email, subject, content, chart):
+                    success_count += 1
+                    logger.info(f"Successfully processed supervisor: {supervisor}")
+                else:
+                    failure_count += 1
+                    logger.error(f"Failed to send email to supervisor: {supervisor}")
                         
             except Exception as e:
                 logger.error(f"Error processing supervisor {supervisor}: {str(e)}")
                 failure_count += 1
-                continue
                 
     except Exception as e:
         logger.error(f"Error in process_supervisors: {str(e)}")
