@@ -266,7 +266,7 @@ def send_test_email(
         
         # Generate content with zero metrics
         content = create_email_content(metrics, template)
-        subject = f"[TEST] {template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject'])}"
+        subject = f"[COPY] {template.get('subject', EmailTemplate.DEFAULT_TEMPLATE['subject'])}"
         
         # Send email using existing function
         success = send_email(test_recipient, subject, content, chart)
