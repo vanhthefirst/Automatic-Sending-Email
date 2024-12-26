@@ -2,7 +2,13 @@
 
 block_cipher = None
 
-# Collect all necessary files
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+fastapi_hidden = collect_submodules('fastapi')
+starlette_hidden = collect_submodules('starlette')
+uvicorn_hidden = collect_submodules('uvicorn')
+encodings_hidden = collect_submodules('encodings')
+
 a = Analysis(
     ['run_app.py'],
     pathex=[],
@@ -12,31 +18,51 @@ a = Analysis(
         ('backend/.env', 'backend'),
         ('src/.env.local', 'src'),
         
+        ('backend', 'backend'),
+
         # Next.js build and configuration files
         ('.next', '.next'),
-        ('node_modules', 'node_modules'),
+        ('public', 'public'),
         ('package.json', '.'),
         ('package-lock.json', '.'),
         ('next.config.js', '.'),
-        ('postcss.config.js', '.'),
-        ('tailwind.config.js', '.'),
         ('tsconfig.json', '.'),
     ],
     hiddenimports=[
-        'uvicorn',
+        # System modules
+        'encodings',
+        *encodings_hidden,
+        'winreg',
+
+        # FastAPI and dependencies
+        *fastapi_hidden,
+        *starlette_hidden,
+        *uvicorn_hidden,
         'fastapi',
         'pydantic',
+
+        # Email related
         'email.mime.multipart',
         'email.mime.text',
         'email.mime.image',
+        
+        # Data processing
         'pandas',
+        'numpy',
         'matplotlib',
+        'matplotlib.backends.backend_agg',
+
+        # Server and process management
         'smtplib',
         'apscheduler',
         'python-dotenv',
         'http.server',
+        'webbrowser',
         'psutil',
-        'requests',
+        'threading',
+        'multiprocessing',
+
+        # Uvicorn dependencies
         'uvicorn.logging',
         'uvicorn.loops',
         'uvicorn.loops.auto',
@@ -57,6 +83,9 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+a.datas = [d for d in a.datas if not d[0].startswith('node_modules')]
+a.binaries = [b for b in a.binaries if not b[0].startswith('node_modules')]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
