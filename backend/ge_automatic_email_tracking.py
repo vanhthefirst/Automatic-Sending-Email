@@ -224,7 +224,7 @@ def send_email(
     """Send email with chart attachment."""
     try:
         msg = MIMEMultipart()
-        msg['From'] = sender or os.getenv('SMTP_SENDER', '223144086@geaerospace.com')
+        msg['From'] = sender or os.getenv('SMTP_SENDER', '212724071@geaerospace.com')
         msg['To'] = recipient
         msg['Subject'] = subject
         
@@ -261,7 +261,7 @@ def send_test_email(
     """Send test email with template data."""
     try:
         # Use default recipient if none provided
-        test_recipient = recipient or os.getenv('ADMIN_EMAIL', '223144086@geaerospace.com')
+        test_recipient = recipient or os.getenv('ADMIN_EMAIL', '212724071@geaerospace.com')
         logger.info(f"Sending test email to: {test_recipient}")
         
         # Generate content with zero metrics

@@ -5,25 +5,20 @@ const dotenv = require('dotenv');
 const { createServer } = require('http');
 const fs = require('fs');
 
-// Load environment variables
+// Load environment variables from both files
 dotenv.config({ path: '.env.local' });
 dotenv.config({ path: '.env' });
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Environment configuration
+// Comprehensive environment configuration
 const ENV_CONFIG = {
   API_KEY: process.env.NEXT_PUBLIC_API_KEY || '123',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
   BACKEND_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  SMTP_SERVER: process.env.SMTP_SERVER || 'e2ksmtp01.e2k.ad.ge.com',
-  SMTP_SENDER: process.env.SMTP_SENDER || '223144086@geaerospace.com',
-  ADMIN_EMAIL: process.env.ADMIN_EMAIL || '223144086@geaerospace.com',
-  TEAM_EMAIL: process.env.TEAM_EMAIL || 'team@example.com',
+  NODE_ENV: process.env.NODE_ENV || 'development',
   ALLOWED_ORIGINS: [
-    process.env.FRONTEND_URL || 'http://localhost:3000',
-    'http://172.24.29.224:3000',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:8000',
@@ -31,7 +26,7 @@ const ENV_CONFIG = {
   ]
 };
 
-// MIME types for static file serving
+// Complete MIME types configuration
 const mimeTypes = {
   '.html': 'text/html',
   '.js': 'application/javascript',
@@ -46,13 +41,21 @@ const mimeTypes = {
   '.woff2': 'application/font-woff2',
   '.ttf': 'application/font-ttf',
   '.eot': 'application/vnd.ms-fontobject',
-  '.otf': 'application/font-otf',
-  '.wasm': 'application/wasm'
+  '.otf': 'application/font-otf'
 };
 
-// Express middleware setup
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Security headers middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// Body parser middleware
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // CORS configuration
 app.use(cors({
@@ -66,39 +69,43 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
-  maxAge: 86400,
+  maxAge: 86400
 }));
 
-// Static file serving middleware with security headers
+// Serve static files with proper headers
 const serveStaticWithHeaders = (directory) => {
   return express.static(directory, {
-    maxAge: '1d',
     setHeaders: (res, filePath) => {
       const ext = path.extname(filePath).toLowerCase();
       if (mimeTypes[ext]) {
         res.setHeader('Content-Type', mimeTypes[ext]);
       }
-      // Security headers
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-      res.setHeader('X-XSS-Protection', '1; mode=block');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
     }
   });
 };
 
-// Serve static files from out directory (Next.js static export)
-app.use(serveStaticWithHeaders(path.join(__dirname, 'out')));
+// Configure static file serving
+app.use('/_next', express.static(path.join(__dirname, '.next'), {
+  maxAge: '1y',
+  immutable: true,
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (mimeTypes[ext]) {
+      res.setHeader('Content-Type', mimeTypes[ext]);
+    }
+  }
+}));
 
-// Serve static files from public directory
-app.use(serveStaticWithHeaders(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// API key middleware for /api routes
+// API key middleware for protected routes
 app.use('/api', (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey || apiKey !== ENV_CONFIG.API_KEY) {
     return res.status(401).json({
-      error: 'Invalid API Key',
-      message: 'Please provide a valid API key'
+      error: 'Unauthorized',
+      message: 'Invalid API Key'
     });
   }
   next();
@@ -109,56 +116,60 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV
+    environment: ENV_CONFIG.NODE_ENV
   });
 });
 
-// Handle all routes - serve index.html for client-side routing
-app.get('*', (req, res, next) => {
-  try {
-    const indexPath = path.join(__dirname, 'out', 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.sendFile(indexPath);
-    } else {
-      // If index.html doesn't exist, send a basic HTML response
-      const htmlResponse = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>CSV Upload Portal</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-              body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-              .container { max-width: 800px; margin: 0 auto; text-align: center; }
-              h1 { color: #333; }
-              p { color: #666; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>CSV Upload Portal</h1>
-              <p>Please ensure the application is properly built before running.</p>
-            </div>
-          </body>
-        </html>
-      `;
-      res.setHeader('Content-Type', 'text/html');
-      res.send(htmlResponse);
-    }
-  } catch (error) {
-    console.error('Error serving page:', error);
-    next(error);
-  }
+// Main application route handler
+app.get('*', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>CSV Upload Portal</title>
+        <link rel="stylesheet" href="/_next/static/css/8d60cd91efe62344.css">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+          }
+          .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+          }
+          h1 {
+            color: #2d3748;
+            text-align: center;
+            margin-bottom: 2rem;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="__next">
+          <div class="container">
+            <h1>CSV Upload Portal</h1>
+            <div id="app-root"></div>
+          </div>
+        </div>
+        <script src="/_next/static/chunks/webpack-5be858628468b409.js"></script>
+        <script src="/_next/static/chunks/main-92f7e840df16e494.js"></script>
+        <script src="/_next/static/chunks/pages/_app-60989c630625b0d6.js"></script>
+        <script src="/_next/static/chunks/pages/index-284b4f3d1662716c.js"></script>
+      </body>
+    </html>
+  `);
 });
 
-// Error handling middleware
+// Global error handling middleware
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
-  
-  // Handle CORS errors
+
+  // Handle specific error types
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({
       error: 'CORS Error',
@@ -166,7 +177,6 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Handle file not found errors
   if (err.code === 'ENOENT') {
     return res.status(404).json({
       error: 'Not Found',
@@ -174,14 +184,44 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Handle other errors
+  // Default error response
   res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error'
+    error: ENV_CONFIG.NODE_ENV === 'development' ? err.message : 'Internal Server Error',
+    ...(ENV_CONFIG.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
 
 // Create HTTP server
 const server = createServer(app);
+
+// Graceful shutdown handler
+const gracefulShutdown = () => {
+  console.log('Received shutdown signal. Closing server...');
+  server.close(() => {
+    console.log('Server closed. Exiting process...');
+    process.exit(0);
+  });
+
+  // Force close after timeout
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+// Process event handlers
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  gracefulShutdown();
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+  gracefulShutdown();
+});
 
 // Start server
 server.listen(port, '0.0.0.0', (err) => {
@@ -190,18 +230,7 @@ server.listen(port, '0.0.0.0', (err) => {
     process.exit(1);
   }
   console.log(`> Server running on http://0.0.0.0:${port}`);
-  console.log('Environment:', process.env.NODE_ENV);
+  console.log('Environment:', ENV_CONFIG.NODE_ENV);
   console.log('Frontend URL:', ENV_CONFIG.FRONTEND_URL);
   console.log('Backend URL:', ENV_CONFIG.BACKEND_URL);
-});
-
-// Handle process errors
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  setTimeout(() => process.exit(1), 1000);
-});
-
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection:', err);
-  setTimeout(() => process.exit(1), 1000);
 });
