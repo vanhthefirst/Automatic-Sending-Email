@@ -328,7 +328,7 @@ def process_supervisors(
             metrics['completion_rate'] = (metrics['completed'] / metrics['total'] * 100) if metrics['total'] > 0 else 0
             metrics_cache[supervisor] = metrics
 
-            email = extract_sso_id(supervisor) # "223144086@geaerospace.com"
+            email = extract_sso_id(supervisor)
             if email:
                 supervisor_emails[supervisor] = email
             
@@ -395,18 +395,10 @@ def run_scheduled_job(data: Optional[pd.DataFrame] = None) -> Tuple[int, int]:
         return 0, 0
 
 
-# Remove the scheduling logic in case of running the script manually or immediately
-# Schedule the job to run daily at a specific time
-#schedule.every().monday.at("14:45").do(run_scheduled_job)
-
-
 if __name__ == "__main__":
     try:
         print("Script started. Press Ctrl+C to exit.")
         run_scheduled_job()
-        #while True:
-        #    schedule.run_pending()
-        #    time.sleep(60)
         print("Email sending process completed.")
     except KeyboardInterrupt:
         print("Script stopped by user.")

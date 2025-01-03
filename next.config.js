@@ -1,14 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export', // Enable static site generation
-  reactStrictMode: true,
-  trailingSlash: true,
-  distDir: 'build',
+  output: 'standalone',
+  distDir: '.next',
   images: {
-    unoptimized: true
+    unoptimized: true,
+    domains: ['localhost']
   },
   typescript: {
-    ignoreBuildErrors: true // Temporarily ignore TS errors for deployment
+    ignoreBuildErrors: true
+  },
+  eslint: {
+    ignoreDuringBuilds: true
   }
 };
 

@@ -82,7 +82,7 @@ const EmailPreviewEditor: React.FC<EmailPreviewEditorProps> = ({
     `;
     setPreviewContent(updatedContent);
     onContentChange(updatedContent);
-  }, [template, metrics, previewChart]);
+  }, [template, metrics, previewChart, onContentChange]);
 
   const handleTemplateChange = (field: keyof EmailTemplate, value: string) => {
     setTemplate(prev => ({ ...prev, [field]: value }));
